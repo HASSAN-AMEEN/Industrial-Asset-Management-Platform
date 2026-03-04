@@ -5,6 +5,9 @@ import { config } from './config/env';
 import { errorHandler } from './middleware/errorHandler';
 import { httpLogger } from './utils/logger';
 import testRoutes from './modules/test/test.routes';
+import authRoutes from './modules/auth/auth.routes';
+import warehouseRoutes from './modules/warehouse/warehouse.routes';
+import machineRoutes from './modules/machine/machine.routes';
 
 /**
  * Express application configuration
@@ -43,6 +46,9 @@ const createApp = (): Application => {
 
   // API routes
   app.use('/api/test', testRoutes);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/warehouses', warehouseRoutes);
+  app.use('/api/machines', machineRoutes);
 
   // 404 handler
   app.use('*', (req, res) => {
