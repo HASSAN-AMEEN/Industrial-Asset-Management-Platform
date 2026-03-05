@@ -148,4 +148,62 @@ export class WarehouseController {
       });
     }
   }
+
+  async getMachines(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { category, status } = req.query;
+
+      // Check warehouse access permissions
+      if (req.user?.role === 'WAREHOUSE_MANAGER' && req.user.warehouseId !== id) {
+        res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+        });
+        return;
+      }
+
+      const machines = await this.warehouseService.getWarehouseMachines(id, {
+        category: category as string,
+        status: status as string,
+      });
+
+      res.status(200).json({
+        success: true,
+        data: machines,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch warehouse machines',
+      });
+    }
+  }
+
+  async getInventory(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+
+      // Check warehouse access permissions
+      if (req.user?.role === 'WAREHOUSE_MANAGER' && req.user.warehouseId !== id) {
+        res.status(403).json({
+          success: false,
+          message: 'Forbidden',
+        });
+        return;
+      }
+
+      const inventory = await this.warehouseService.getWarehouseInventory(id);
+
+      res.status(200).json({
+        success: true,
+        data: inventory,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch warehouse inventory',
+      });
+    }
+  }
 }

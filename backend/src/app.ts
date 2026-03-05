@@ -8,6 +8,9 @@ import testRoutes from './modules/test/test.routes';
 import authRoutes from './modules/auth/auth.routes';
 import warehouseRoutes from './modules/warehouse/warehouse.routes';
 import machineRoutes from './modules/machine/machine.routes';
+import shipmentRoutes from './modules/shipment/shipment.routes';
+import clientRoutes from './modules/client/client.routes';
+import installationRoutes from './modules/installation/installation.routes';
 
 /**
  * Express application configuration
@@ -49,6 +52,9 @@ const createApp = (): Application => {
   app.use('/api/auth', authRoutes);
   app.use('/api/warehouses', warehouseRoutes);
   app.use('/api/machines', machineRoutes);
+  app.use('/api/shipments', shipmentRoutes);
+  app.use('/api/clients', clientRoutes);
+  app.use('/api/installations', installationRoutes);
 
   // 404 handler
   app.use('*', (req, res) => {

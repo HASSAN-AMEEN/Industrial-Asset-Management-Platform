@@ -57,4 +57,43 @@ export class WarehouseService {
       where: { id },
     });
   }
+
+  async getWarehouseMachines(warehouseId: string, filters?: {
+    category?: string;
+    status?: string;
+  }) {
+    const where: any = { warehouseId };
+    
+    if (filters?.category) {
+      where.category = filters.category;
+    }
+    
+    if (filters?.status) {
+      where.status = filters.status;
+    }
+
+    return prisma.machine.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getWarehouseInventory(warehouseId: string) {
+    const machines = await prisma.machine.findMany({
+      where: { warehouseId },
+    });
+
+    const inventory = machines.reduce((acc, machine) => {
+      acc.total++;
+      acc.byCategory[machine.category] = (acc.byCategory[machine.category] || 0) + 1;
+      acc.byStatus[machine.status] = (acc.byStatus[machine.status] || 0) + 1;
+      return acc;
+    }, {
+      total: 0,
+      byCategory: {} as Record<string, number>,
+      byStatus: {} as Record<string, number>,
+    });
+
+    return inventory;
+  }
 }
