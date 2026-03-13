@@ -17,6 +17,15 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
+export const setAuthToken = (token: string | null): void => {
+  if (token) {
+    apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
+    return;
+  }
+
+  delete apiClient.defaults.headers.common.Authorization;
+};
+
 // Request interceptor for logging
 apiClient.interceptors.request.use(
   (config) => {
