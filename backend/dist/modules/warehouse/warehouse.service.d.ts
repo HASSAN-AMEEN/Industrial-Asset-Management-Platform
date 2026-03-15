@@ -84,5 +84,30 @@ export declare class WarehouseService {
         byCategory: Record<string, number>;
         byStatus: Record<string, number>;
     }>;
+    listWarehouseManagers(): Promise<{
+        id: string;
+        email: string;
+        createdAt: Date;
+        warehouseId: string | null;
+    }[]>;
+    assignManager(warehouseId: string, managerUserId: string): Promise<{
+        warehouse: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            address: string;
+            city: string;
+            manager: string | null;
+            contact: string | null;
+            capacity: number | null;
+        };
+        manager: {
+            id: string;
+            email: string;
+            warehouseId: string | null;
+            role: import(".prisma/client").$Enums.UserRole;
+        };
+    }>;
 }
 //# sourceMappingURL=warehouse.service.d.ts.map

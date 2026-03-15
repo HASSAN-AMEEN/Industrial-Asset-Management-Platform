@@ -27,7 +27,7 @@ class MachineService {
                 fromStatus: 'SYSTEM',
                 toStatus: machine.status,
                 changedBy: changedByUserId,
-                comment: 'Machine created',
+                comment: 'Machine added to inventory',
             },
         });
         return machine;

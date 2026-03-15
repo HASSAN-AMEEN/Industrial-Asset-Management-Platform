@@ -20,6 +20,7 @@ import {
   MapScreen,
   AddMachineScreen,
   UserManagementScreen,
+  WarehouseManagementScreen,
 } from '../screens';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -55,7 +56,7 @@ const CustomTabBar: React.FC<TabBarProps> = ({ state, descriptors, navigation })
     { name: 'Machines', icon: 'cog', label: 'Machines' },
     { name: 'Shipments', icon: 'truck', label: 'Shipments' },
     { name: 'Map', icon: 'map', label: 'Map' },
-    { name: 'Settings', icon: 'account-cog', label: 'Settings' },
+    { name: 'Warehouses', icon: 'warehouse', label: 'Warehouses' },
   ];
 
   return (
@@ -112,8 +113,18 @@ const CustomTabBar: React.FC<TabBarProps> = ({ state, descriptors, navigation })
 
 // Settings Screen Placeholder
 const SettingsScreen = () => (
-  <UserManagementScreen />
+  <RoleAwareSettingsScreen />
 );
+
+const RoleAwareSettingsScreen = () => {
+  const { user } = useAuth();
+
+  if (user?.role === 'SUPER_ADMIN') {
+    return <WarehouseManagementScreen />;
+  }
+
+  return <UserManagementScreen />;
+};
 
 // Main Tab Navigator
 const MainTabNavigator = () => {

@@ -39,8 +39,18 @@ class WarehouseService {
         });
     }
     async remove(id) {
-        return database_1.prisma.warehouse.delete({
-            where: { id },
+        const machineCount = await database_1.prisma.machine.count({ where: { warehouseId: id } });
+        if (machineCount > 0) {
+            throw new Error(`Cannot delete warehouse: ${machineCount} machine(s) are still assigned. Move or delete machines first.`);
+        }
+        return database_1.prisma.$transaction(async (tx) => {
+            await tx.user.updateMany({
+                where: { warehouseId: id },
+                data: { warehouseId: null },
+            });
+            return tx.warehouse.delete({
+                where: { id },
+            });
         });
     }
     async getWarehouseMachines(warehouseId, filters) {
@@ -71,6 +81,59 @@ class WarehouseService {
             byStatus: {},
         });
         return inventory;
+    }
+    async listWarehouseManagers() {
+        return database_1.prisma.user.findMany({
+            where: { role: 'WAREHOUSE_MANAGER' },
+            select: {
+                id: true,
+                email: true,
+                warehouseId: true,
+                createdAt: true,
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+    async assignManager(warehouseId, managerUserId) {
+        const warehouse = await database_1.prisma.warehouse.findUnique({ where: { id: warehouseId } });
+        if (!warehouse) {
+            throw new Error('Warehouse not found');
+        }
+        const manager = await database_1.prisma.user.findUnique({ where: { id: managerUserId } });
+        if (!manager) {
+            throw new Error('Manager user not found');
+        }
+        if (manager.role !== 'WAREHOUSE_MANAGER') {
+            throw new Error('Selected user is not a warehouse manager');
+        }
+        return database_1.prisma.$transaction(async (tx) => {
+            await tx.user.updateMany({
+                where: {
+                    role: 'WAREHOUSE_MANAGER',
+                    warehouseId,
+                    id: { not: managerUserId },
+                },
+                data: { warehouseId: null },
+            });
+            const updatedManager = await tx.user.update({
+                where: { id: managerUserId },
+                data: { warehouseId },
+                select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    warehouseId: true,
+                },
+            });
+            const updatedWarehouse = await tx.warehouse.update({
+                where: { id: warehouseId },
+                data: { manager: updatedManager.email },
+            });
+            return {
+                warehouse: updatedWarehouse,
+                manager: updatedManager,
+            };
+        });
     }
 }
 exports.WarehouseService = WarehouseService;

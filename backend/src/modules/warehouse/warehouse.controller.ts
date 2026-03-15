@@ -206,4 +206,47 @@ export class WarehouseController {
       });
     }
   }
+
+  async listManagers(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const managers = await this.warehouseService.listWarehouseManagers();
+      res.status(200).json({
+        success: true,
+        data: managers,
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch warehouse managers',
+      });
+    }
+  }
+
+  async assignManager(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      const { id } = req.params;
+      const { managerUserId } = req.body;
+
+      if (!managerUserId) {
+        res.status(400).json({
+          success: false,
+          message: 'managerUserId is required',
+        });
+        return;
+      }
+
+      const data = await this.warehouseService.assignManager(id, managerUserId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Warehouse manager assigned successfully',
+        data,
+      });
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to assign warehouse manager',
+      });
+    }
+  }
 }

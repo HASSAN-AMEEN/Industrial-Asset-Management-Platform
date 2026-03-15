@@ -4,20 +4,21 @@ import { Colors, BorderRadius, Spacing, FontSizes } from '../utils/theme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Card from './Card';
 import StatusBadge from './StatusBadge';
-import { Machine } from '../types';
+import { BackendMachineStatus } from '../services/machine';
 
 interface MachineCardProps {
-  machine: Machine;
+  machine: {
+    id: string;
+    model: string;
+    serialNumber: string;
+    category?: string | null;
+    status: BackendMachineStatus;
+    location: string;
+  };
   onPress?: () => void;
 }
 
 export const MachineCard: React.FC<MachineCardProps> = ({ machine, onPress }) => {
-  const getHealthColor = (score: number) => {
-    if (score >= 80) return Colors.success;
-    if (score >= 50) return Colors.warning;
-    return Colors.error;
-  };
-
   return (
     <Card onPress={onPress} variant="elevated" style={styles.card}>
       <View style={styles.header}>
@@ -25,8 +26,8 @@ export const MachineCard: React.FC<MachineCardProps> = ({ machine, onPress }) =>
           <Icon name="cog" size={24} color={Colors.primary} />
         </View>
         <View style={styles.headerInfo}>
-          <Text style={styles.serialNumber}>{machine.serialNumber}</Text>
           <Text style={styles.model}>{machine.model}</Text>
+          <Text style={styles.metaText}>{machine.category || 'Uncategorized'}</Text>
         </View>
         <StatusBadge status={machine.status} size="sm" />
       </View>
@@ -39,28 +40,8 @@ export const MachineCard: React.FC<MachineCardProps> = ({ machine, onPress }) =>
           <Text style={styles.detailText}>{machine.location}</Text>
         </View>
         <View style={styles.detailRow}>
-          <Icon name="wrench" size={16} color={Colors.textSecondary} />
-          <Text style={styles.detailText}>Next service: {machine.nextService}</Text>
-        </View>
-      </View>
-
-      <View style={styles.healthContainer}>
-        <View style={styles.healthHeader}>
-          <Text style={styles.healthLabel}>Health Score</Text>
-          <Text style={[styles.healthValue, { color: getHealthColor(machine.healthScore) }]}>
-            {machine.healthScore}%
-          </Text>
-        </View>
-        <View style={styles.healthBarBg}>
-          <View
-            style={[
-              styles.healthBar,
-              {
-                width: `${machine.healthScore}%`,
-                backgroundColor: getHealthColor(machine.healthScore),
-              },
-            ]}
-          />
+          <Icon name="barcode" size={16} color={Colors.textSecondary} />
+          <Text style={styles.detailText}>Serial: {machine.serialNumber}</Text>
         </View>
       </View>
     </Card>
@@ -87,12 +68,12 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: Spacing.md,
   },
-  serialNumber: {
+  model: {
     color: Colors.textPrimary,
     fontSize: FontSizes.md,
     fontWeight: '600',
   },
-  model: {
+  metaText: {
     color: Colors.textSecondary,
     fontSize: FontSizes.sm,
     marginTop: 2,
@@ -113,32 +94,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: FontSizes.sm,
     marginLeft: Spacing.sm,
-  },
-  healthContainer: {
-    marginTop: Spacing.md,
-  },
-  healthHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.xs,
-  },
-  healthLabel: {
-    color: Colors.textSecondary,
-    fontSize: FontSizes.sm,
-  },
-  healthValue: {
-    fontSize: FontSizes.sm,
-    fontWeight: '600',
-  },
-  healthBarBg: {
-    height: 6,
-    backgroundColor: Colors.backgroundInput,
-    borderRadius: BorderRadius.full,
-    overflow: 'hidden',
-  },
-  healthBar: {
-    height: '100%',
-    borderRadius: BorderRadius.full,
   },
 });
 

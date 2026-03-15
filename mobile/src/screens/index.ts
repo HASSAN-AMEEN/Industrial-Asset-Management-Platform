@@ -12,3 +12,4 @@ export { default as ShipmentListScreen } from './ShipmentListScreen';
 export { default as MapScreen } from './MapScreen';
 export { default as AddMachineScreen } from './AddMachineScreen';
 export { default as UserManagementScreen } from './UserManagementScreen';
+export { default as WarehouseManagementScreen } from './WarehouseManagementScreen';

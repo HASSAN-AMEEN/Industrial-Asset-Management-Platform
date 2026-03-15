@@ -20,6 +20,13 @@ export interface AuthPayload {
   token: string;
 }
 
+interface RegisterWithRoleInput {
+  email: string;
+  password: string;
+  role?: BackendAuthRole;
+  warehouseId?: string;
+}
+
 interface BackendResponse<T> {
   success: boolean;
   message?: string;
@@ -44,6 +51,21 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
+const registerWithRoleRequest = async (input: RegisterWithRoleInput): Promise<AuthPayload> => {
+  const response = await api.post<BackendResponse<AuthPayload>>('/auth/register', {
+    email: input.email,
+    password: input.password,
+    role: input.role || 'SALES_OPS',
+    warehouseId: input.warehouseId,
+  });
+
+  if (!response.data?.success || !response.data?.data) {
+    throw new Error(response.data?.message || 'Signup failed');
+  }
+
+  return response.data.data;
+};
+
 export const authService = {
   async login(email: string, password: string): Promise<AuthPayload> {
     try {
@@ -63,20 +85,14 @@ export const authService = {
   },
 
   async register(email: string, password: string): Promise<AuthPayload> {
+    return registerWithRoleRequest({ email, password, role: 'SALES_OPS' });
+  },
+
+  async registerWithRole(input: RegisterWithRoleInput): Promise<AuthPayload> {
     try {
-      const response = await api.post<BackendResponse<AuthPayload>>('/auth/register', {
-        email,
-        password,
-        role: 'SALES_OPS',
-      });
-
-      if (!response.data?.success || !response.data?.data) {
-        throw new Error(response.data?.message || 'Signup failed');
-      }
-
-      return response.data.data;
+      return registerWithRoleRequest(input);
     } catch (error) {
-      throw new Error(getErrorMessage(error, 'Signup failed'));
+      throw new Error(getErrorMessage(error, 'Registration failed'));
     }
   },
 

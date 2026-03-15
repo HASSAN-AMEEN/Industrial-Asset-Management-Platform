@@ -53,8 +53,24 @@ export class WarehouseService {
   }
 
   async remove(id: string) {
-    return prisma.warehouse.delete({
-      where: { id },
+    const machineCount = await prisma.machine.count({ where: { warehouseId: id } });
+
+    if (machineCount > 0) {
+      throw new Error(
+        `Cannot delete warehouse: ${machineCount} machine(s) are still assigned. Move or delete machines first.`
+      );
+    }
+
+    return prisma.$transaction(async (tx) => {
+      // Keep users (including warehouse managers) but detach them from this warehouse.
+      await tx.user.updateMany({
+        where: { warehouseId: id },
+        data: { warehouseId: null },
+      });
+
+      return tx.warehouse.delete({
+        where: { id },
+      });
     });
   }
 
@@ -95,5 +111,67 @@ export class WarehouseService {
     });
 
     return inventory;
+  }
+
+  async listWarehouseManagers() {
+    return prisma.user.findMany({
+      where: { role: 'WAREHOUSE_MANAGER' },
+      select: {
+        id: true,
+        email: true,
+        warehouseId: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async assignManager(warehouseId: string, managerUserId: string) {
+    const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
+    if (!warehouse) {
+      throw new Error('Warehouse not found');
+    }
+
+    const manager = await prisma.user.findUnique({ where: { id: managerUserId } });
+    if (!manager) {
+      throw new Error('Manager user not found');
+    }
+
+    if (manager.role !== 'WAREHOUSE_MANAGER') {
+      throw new Error('Selected user is not a warehouse manager');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      // One warehouse should map to one manager assignment in this lightweight flow.
+      await tx.user.updateMany({
+        where: {
+          role: 'WAREHOUSE_MANAGER',
+          warehouseId,
+          id: { not: managerUserId },
+        },
+        data: { warehouseId: null },
+      });
+
+      const updatedManager = await tx.user.update({
+        where: { id: managerUserId },
+        data: { warehouseId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          warehouseId: true,
+        },
+      });
+
+      const updatedWarehouse = await tx.warehouse.update({
+        where: { id: warehouseId },
+        data: { manager: updatedManager.email },
+      });
+
+      return {
+        warehouse: updatedWarehouse,
+        manager: updatedManager,
+      };
+    });
   }
 }

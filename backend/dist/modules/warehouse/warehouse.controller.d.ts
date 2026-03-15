@@ -9,5 +9,7 @@ export declare class WarehouseController {
     remove(req: Request, res: Response): Promise<void>;
     getMachines(req: AuthenticatedRequest, res: Response): Promise<void>;
     getInventory(req: AuthenticatedRequest, res: Response): Promise<void>;
+    listManagers(req: AuthenticatedRequest, res: Response): Promise<void>;
+    assignManager(req: AuthenticatedRequest, res: Response): Promise<void>;
 }
 //# sourceMappingURL=warehouse.controller.d.ts.map

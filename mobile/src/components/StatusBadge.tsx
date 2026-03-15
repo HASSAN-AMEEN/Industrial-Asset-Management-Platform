@@ -93,6 +93,41 @@ const statusColors: Partial<Record<StatusType, { bg: string; text: string; dot: 
     text: Colors.info,
     dot: Colors.info,
   },
+  IN_WAREHOUSE: {
+    bg: `${Colors.info}20`,
+    text: Colors.info,
+    dot: Colors.info,
+  },
+  RESERVED: {
+    bg: '#6D28D920',
+    text: '#8B5CF6',
+    dot: '#8B5CF6',
+  },
+  UNDER_SHIPMENT: {
+    bg: `${Colors.warning}20`,
+    text: Colors.warning,
+    dot: Colors.warning,
+  },
+  DELIVERED: {
+    bg: '#EA580C20',
+    text: '#FB923C',
+    dot: '#FB923C',
+  },
+  INSTALLED: {
+    bg: `${Colors.success}20`,
+    text: Colors.success,
+    dot: Colors.success,
+  },
+  UNDER_MAINTENANCE: {
+    bg: `${Colors.error}20`,
+    text: Colors.error,
+    dot: Colors.error,
+  },
+  RETURNED: {
+    bg: `${Colors.textMuted}20`,
+    text: Colors.textMuted,
+    dot: Colors.textMuted,
+  },
 };
 
 const statusLabels: Partial<Record<StatusType, string>> = {
@@ -107,6 +142,13 @@ const statusLabels: Partial<Record<StatusType, string>> = {
   warning: 'Warning',
   error: 'Error',
   info: 'Info',
+  IN_WAREHOUSE: 'In Warehouse',
+  RESERVED: 'Reserved',
+  UNDER_SHIPMENT: 'Under Shipment',
+  DELIVERED: 'Delivered',
+  INSTALLED: 'Installed',
+  UNDER_MAINTENANCE: 'Under Maintenance',
+  RETURNED: 'Returned',
 };
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({
