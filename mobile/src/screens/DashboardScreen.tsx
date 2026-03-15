@@ -13,27 +13,57 @@ import { Card, StatCard, ActivityItem, Button } from '../components';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useResponsive } from '../hooks/useResponsive';
 import { Activity } from '../types';
+import { useAuth } from '../store/AuthContext';
+import dashboardService, { DashboardPayload } from '../services/dashboard';
+import notificationsService from '../services/notifications';
 
-// Sample data
-const stats = [
-  { title: 'Total Machines', value: 247, icon: 'cog', color: Colors.primary, trend: { value: 12, isPositive: true } },
-  { title: 'Active', value: 198, icon: 'check-circle', color: Colors.success },
-  { title: 'In Transit', value: 23, icon: 'truck', color: Colors.secondary },
-  { title: 'Maintenance', value: 26, icon: 'wrench', color: Colors.warning },
-];
+const FLEET_COLOR_MAP: Record<'Active' | 'Transit' | 'Maintenance', string> = {
+  Active: Colors.success,
+  Transit: Colors.secondary,
+  Maintenance: Colors.warning,
+};
 
-const fleetStatus = [
-  { label: 'Active', value: 198, color: Colors.success, percentage: 80 },
-  { label: 'Transit', value: 23, color: Colors.secondary, percentage: 9 },
-  { label: 'Maintenance', value: 26, color: Colors.warning, percentage: 11 },
-];
+const formatRelativeTime = (isoDate: string): string => {
+  const timestamp = new Date(isoDate).getTime();
+  if (Number.isNaN(timestamp)) {
+    return 'just now';
+  }
 
-const recentActivity: Activity[] = [
-  { id: '1', type: 'shipment', title: 'Shipment Delivered', description: 'SHP-2024-001 arrived at Houston facility', timestamp: '2h ago' },
-  { id: '2', type: 'maintenance', title: 'Maintenance Scheduled', description: 'M-4521 requires routine service', timestamp: '4h ago' },
-  { id: '3', type: 'installation', title: 'Installation Complete', description: 'M-4519 successfully installed at Dallas site', timestamp: '6h ago' },
-  { id: '4', type: 'alert', title: 'Health Alert', description: 'M-4498 health score dropped below 50%', timestamp: '8h ago' },
-];
+  const diffMs = Date.now() - timestamp;
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) return 'just now';
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)}m ago`;
+  if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
+  return `${Math.floor(diffMs / day)}d ago`;
+};
+
+const getGreeting = (): string => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 17) return 'Good Afternoon';
+  return 'Good Evening';
+};
+
+const toDisplayName = (email?: string): string => {
+  if (!email) {
+    return 'Operator';
+  }
+
+  const localPart = email.split('@')[0] || '';
+  const cleaned = localPart.replace(/[._-]+/g, ' ').trim();
+  if (!cleaned) {
+    return 'Operator';
+  }
+
+  return cleaned
+    .split(' ')
+    .filter(Boolean)
+    .map((chunk) => chunk.charAt(0).toUpperCase() + chunk.slice(1))
+    .join(' ');
+};
 
 interface DashboardScreenProps {
   onNavigate?: (screen: string) => void;
@@ -41,11 +71,80 @@ interface DashboardScreenProps {
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) => {
   const [refreshing, setRefreshing] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [dashboardData, setDashboardData] = React.useState<DashboardPayload | null>(null);
+  const [notificationCount, setNotificationCount] = React.useState(0);
   const { wp } = useResponsive();
+  const { logout, user } = useAuth();
+
+  const fetchDashboardData = React.useCallback(async () => {
+    try {
+      setErrorMessage(null);
+      const [dashboardResult, notificationsResult] = await Promise.allSettled([
+        dashboardService.getDashboard(),
+        notificationsService.getUnreadCount(),
+      ]);
+
+      if (dashboardResult.status === 'fulfilled') {
+        setDashboardData(dashboardResult.value);
+      } else {
+        const message =
+          dashboardResult.reason instanceof Error
+            ? dashboardResult.reason.message
+            : 'Failed to load dashboard';
+        setErrorMessage(message);
+      }
+
+      if (notificationsResult.status === 'fulfilled') {
+        setNotificationCount(notificationsResult.value.unreadCount);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load dashboard';
+      setErrorMessage(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const stats = React.useMemo(() => {
+    const machineStats = dashboardData?.machineStats;
+    return [
+      { title: 'Total Machines', value: machineStats?.total ?? 0, icon: 'cog', color: Colors.primary },
+      { title: 'Active', value: machineStats?.active ?? 0, icon: 'check-circle', color: Colors.success },
+      { title: 'In Transit', value: machineStats?.inTransit ?? 0, icon: 'truck', color: Colors.secondary },
+      { title: 'Maintenance', value: machineStats?.maintenance ?? 0, icon: 'wrench', color: Colors.warning },
+    ];
+  }, [dashboardData]);
+
+  const fleetStatus = React.useMemo(() => {
+    return (dashboardData?.fleetStatus ?? []).map((item) => ({
+      ...item,
+      color: FLEET_COLOR_MAP[item.label],
+    }));
+  }, [dashboardData]);
+
+  const recentActivity: Activity[] = React.useMemo(() => {
+    return (dashboardData?.recentActivity ?? []).map((item) => ({
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      description: item.description,
+      timestamp: formatRelativeTime(item.createdAt),
+    }));
+  }, [dashboardData]);
+
+  const greeting = React.useMemo(() => getGreeting(), []);
+  const displayName = React.useMemo(() => toDisplayName(user?.email), [user?.email]);
+  const badgeText = notificationCount > 99 ? '99+' : String(notificationCount);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await fetchDashboardData();
     setRefreshing(false);
   };
 
@@ -54,19 +153,21 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Good Morning</Text>
-          <Text style={styles.userName}>John Operator</Text>
+          <Text style={styles.greeting}>{greeting}</Text>
+          <Text style={styles.userName}>{displayName}</Text>
         </View>
         <View style={styles.headerActions}>
           <Pressable style={styles.headerButton}>
             <Icon name="bell-outline" size={24} color={Colors.textPrimary} />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationCount}>3</Text>
-            </View>
+            {notificationCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationCount}>{badgeText}</Text>
+              </View>
+            )}
           </Pressable>
-          <Pressable style={styles.avatarButton}>
+          <Pressable style={styles.avatarButton} onPress={() => logout()}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>JO</Text>
+              <Text style={styles.avatarText}>{user?.email ? user.email.split('@')[0].slice(0,2).toUpperCase() : 'JO'}</Text>
             </View>
           </Pressable>
         </View>
@@ -86,6 +187,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         }
       >
         {/* Stats Cards - Horizontal Scroll */}
+        {errorMessage && (
+          <View style={styles.section}>
+            <Card variant="outlined">
+              <Text style={styles.errorText}>{errorMessage}</Text>
+              <Button title="Retry" onPress={fetchDashboardData} size="sm" />
+            </Card>
+          </View>
+        )}
+
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -98,7 +208,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               value={stat.value}
               icon={stat.icon}
               iconColor={stat.color}
-              trend={stat.trend}
+              trend={undefined}
               style={{ width: wp(40), marginRight: Spacing.md }}
               size="sm"
             />
@@ -119,7 +229,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               <View style={styles.chartContainer}>
                 <View style={styles.donutChart}>
                   <View style={styles.donutCenter}>
-                    <Text style={styles.donutValue}>247</Text>
+                    <Text style={styles.donutValue}>{dashboardData?.machineStats.total ?? 0}</Text>
                     <Text style={styles.donutLabel}>Total</Text>
                   </View>
                 </View>
@@ -190,6 +300,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               <Text style={styles.seeAll}>View All</Text>
             </Pressable>
           </View>
+          {isLoading && recentActivity.length === 0 && (
+            <Text style={styles.loadingText}>Loading dashboard data...</Text>
+          )}
+          {!isLoading && recentActivity.length === 0 && (
+            <Text style={styles.emptyText}>No recent activity yet.</Text>
+          )}
           {recentActivity.map((activity) => (
             <ActivityItem key={activity.id} activity={activity} />
           ))}
@@ -237,8 +353,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: 0,
-    width: 18,
+    minWidth: 18,
     height: 18,
+    paddingHorizontal: 4,
     borderRadius: BorderRadius.full,
     backgroundColor: Colors.error,
     alignItems: 'center',
@@ -385,6 +502,19 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 100,
+  },
+  errorText: {
+    color: Colors.error,
+    fontSize: FontSizes.sm,
+    marginBottom: Spacing.sm,
+  },
+  loadingText: {
+    color: Colors.textSecondary,
+    fontSize: FontSizes.sm,
+  },
+  emptyText: {
+    color: Colors.textMuted,
+    fontSize: FontSizes.sm,
   },
 });
 

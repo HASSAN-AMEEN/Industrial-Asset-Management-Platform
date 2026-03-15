@@ -11,6 +11,8 @@ import machineRoutes from './modules/machine/machine.routes';
 import shipmentRoutes from './modules/shipment/shipment.routes';
 import clientRoutes from './modules/client/client.routes';
 import installationRoutes from './modules/installation/installation.routes';
+import dashboardRoutes from './modules/dashboard/dashboard.routes';
+import notificationsRoutes from './modules/notifications/notifications.routes';
 
 /**
  * Express application configuration
@@ -55,6 +57,8 @@ const createApp = (): Application => {
   app.use('/api/shipments', shipmentRoutes);
   app.use('/api/clients', clientRoutes);
   app.use('/api/installations', installationRoutes);
+  app.use('/api/dashboard', dashboardRoutes);
+  app.use('/api/notifications', notificationsRoutes);
 
   // 404 handler
   app.use('*', (req, res) => {
