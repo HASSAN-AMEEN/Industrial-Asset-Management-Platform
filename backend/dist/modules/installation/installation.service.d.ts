@@ -23,7 +23,7 @@ export declare class InstallationService {
             purchaseDate: Date | null;
             cost: import("@prisma/client/runtime/library").Decimal | null;
             clientId: string | null;
-            installationLocation: string | null;
+            installationId: string | null;
         };
     } & {
         id: string;
@@ -31,11 +31,11 @@ export declare class InstallationService {
         updatedAt: Date;
         status: import(".prisma/client").$Enums.InstallationStatus;
         clientId: string | null;
+        latitude: number | null;
+        longitude: number | null;
         machineId: string;
         installedAt: Date;
         installedBy: string;
-        latitude: number | null;
-        longitude: number | null;
         siteAddress: string | null;
         siteNotes: string | null;
     }>;
@@ -66,7 +66,7 @@ export declare class InstallationService {
             purchaseDate: Date | null;
             cost: import("@prisma/client/runtime/library").Decimal | null;
             clientId: string | null;
-            installationLocation: string | null;
+            installationId: string | null;
         };
     } & {
         id: string;
@@ -74,11 +74,11 @@ export declare class InstallationService {
         updatedAt: Date;
         status: import(".prisma/client").$Enums.InstallationStatus;
         clientId: string | null;
+        latitude: number | null;
+        longitude: number | null;
         machineId: string;
         installedAt: Date;
         installedBy: string;
-        latitude: number | null;
-        longitude: number | null;
         siteAddress: string | null;
         siteNotes: string | null;
     })[]>;
@@ -105,7 +105,7 @@ export declare class InstallationService {
             purchaseDate: Date | null;
             cost: import("@prisma/client/runtime/library").Decimal | null;
             clientId: string | null;
-            installationLocation: string | null;
+            installationId: string | null;
         };
     } & {
         id: string;
@@ -113,11 +113,11 @@ export declare class InstallationService {
         updatedAt: Date;
         status: import(".prisma/client").$Enums.InstallationStatus;
         clientId: string | null;
+        latitude: number | null;
+        longitude: number | null;
         machineId: string;
         installedAt: Date;
         installedBy: string;
-        latitude: number | null;
-        longitude: number | null;
         siteAddress: string | null;
         siteNotes: string | null;
     }) | null>;
@@ -144,7 +144,7 @@ export declare class InstallationService {
             purchaseDate: Date | null;
             cost: import("@prisma/client/runtime/library").Decimal | null;
             clientId: string | null;
-            installationLocation: string | null;
+            installationId: string | null;
         };
     } & {
         id: string;
@@ -152,11 +152,11 @@ export declare class InstallationService {
         updatedAt: Date;
         status: import(".prisma/client").$Enums.InstallationStatus;
         clientId: string | null;
+        latitude: number | null;
+        longitude: number | null;
         machineId: string;
         installedAt: Date;
         installedBy: string;
-        latitude: number | null;
-        longitude: number | null;
         siteAddress: string | null;
         siteNotes: string | null;
     }>;
@@ -166,11 +166,11 @@ export declare class InstallationService {
         updatedAt: Date;
         status: import(".prisma/client").$Enums.InstallationStatus;
         clientId: string | null;
+        latitude: number | null;
+        longitude: number | null;
         machineId: string;
         installedAt: Date;
         installedBy: string;
-        latitude: number | null;
-        longitude: number | null;
         siteAddress: string | null;
         siteNotes: string | null;
     }>;

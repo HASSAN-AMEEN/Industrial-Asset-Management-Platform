@@ -28,8 +28,8 @@ export class ClientService {
       where.OR = [
         { name: { contains: params.q, mode: 'insensitive' } },
         { contact: { contains: params.q, mode: 'insensitive' } },
-        { email: { contains: params.q, mode: 'insensitive' } },
-        { phone: { contains: params.q, mode: 'insensitive' } },
+        { address: { contains: params.q, mode: 'insensitive' } },
+        { city: { contains: params.q, mode: 'insensitive' } },
       ];
     }
 

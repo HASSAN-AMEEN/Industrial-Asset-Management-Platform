@@ -77,7 +77,7 @@ export declare class WarehouseService {
         purchaseDate: Date | null;
         cost: import("@prisma/client/runtime/library").Decimal | null;
         clientId: string | null;
-        installationLocation: string | null;
+        installationId: string | null;
     }[]>;
     getWarehouseInventory(warehouseId: string): Promise<{
         total: number;

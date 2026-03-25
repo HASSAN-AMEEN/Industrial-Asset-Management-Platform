@@ -17,5 +17,6 @@ router.post('/', requireAnyRole([UserRole.SUPER_ADMIN, UserRole.WAREHOUSE_MANAGE
 router.put('/:id', requireAnyRole([UserRole.SUPER_ADMIN, UserRole.WAREHOUSE_MANAGER, UserRole.SALES_OPS]), controller.update.bind(controller));
 router.patch('/:id/status', requireAnyRole([UserRole.SUPER_ADMIN, UserRole.WAREHOUSE_MANAGER, UserRole.SALES_OPS]), controller.setStatus.bind(controller));
 router.patch('/:id/deliver', requireAnyRole([UserRole.SUPER_ADMIN, UserRole.WAREHOUSE_MANAGER, UserRole.SALES_OPS]), controller.deliver.bind(controller));
+router.patch('/:id/cancel', requireAnyRole([UserRole.SUPER_ADMIN, UserRole.WAREHOUSE_MANAGER, UserRole.SALES_OPS]), controller.cancel.bind(controller));
 
 export default router;

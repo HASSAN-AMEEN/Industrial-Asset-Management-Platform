@@ -17,16 +17,16 @@ class InstallationService {
         if (machine.status !== 'DELIVERED') {
             throw new Error('Only DELIVERED machines can be installed');
         }
-        if (input.clientId) {
-            const client = await database_1.prisma.client.findUnique({ where: { id: input.clientId } });
-            if (!client) {
-                throw new Error('Client not found');
-            }
+        if (!machine.clientId) {
+            throw new Error('Machine must have a client assignment before installation');
+        }
+        if (input.clientId && input.clientId !== machine.clientId) {
+            throw new Error('Provided clientId does not match machine client assignment');
         }
         const installation = await database_1.prisma.installation.create({
             data: {
                 machineId: input.machineId,
-                clientId: input.clientId,
+                clientId: machine.clientId,
                 installedAt: input.installedAt ? new Date(input.installedAt) : new Date(),
                 installedBy: installedByUserId,
                 latitude: input.latitude,
@@ -42,7 +42,10 @@ class InstallationService {
         });
         const updatedMachine = await database_1.prisma.machine.update({
             where: { id: input.machineId },
-            data: { status: 'INSTALLED' },
+            data: {
+                status: 'INSTALLED',
+                installationId: installation.id,
+            },
         });
         await database_1.prisma.machineStatusHistory.create({
             data: {
@@ -89,13 +92,16 @@ class InstallationService {
         if (!existing) {
             throw new Error('Installation not found');
         }
+        if (input.clientId !== undefined && input.clientId !== existing.clientId) {
+            throw new Error('Changing installation clientId is not allowed');
+        }
         if (input.status && !isInstallationStatus(input.status)) {
             throw new Error('Invalid status');
         }
         const updated = await database_1.prisma.installation.update({
             where: { id },
             data: {
-                clientId: input.clientId === undefined ? undefined : input.clientId,
+                clientId: undefined,
                 latitude: input.latitude === undefined ? undefined : input.latitude,
                 longitude: input.longitude === undefined ? undefined : input.longitude,
                 siteAddress: input.siteAddress === undefined ? undefined : input.siteAddress,
@@ -110,7 +116,10 @@ class InstallationService {
         if (input.status === 'REMOVED' && existing.status !== 'REMOVED') {
             await database_1.prisma.machine.update({
                 where: { id: existing.machineId },
-                data: { status: 'DELIVERED' },
+                data: {
+                    status: 'DELIVERED',
+                    installationId: null,
+                },
             });
             await database_1.prisma.machineStatusHistory.create({
                 data: {
@@ -131,7 +140,10 @@ class InstallationService {
         }
         await database_1.prisma.machine.update({
             where: { id: existing.machineId },
-            data: { status: 'DELIVERED' },
+            data: {
+                status: 'DELIVERED',
+                installationId: null,
+            },
         });
         await database_1.prisma.machineStatusHistory.create({
             data: {

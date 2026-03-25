@@ -20,17 +20,18 @@ export class InstallationService {
       throw new Error('Only DELIVERED machines can be installed');
     }
 
-    if (input.clientId) {
-      const client = await prisma.client.findUnique({ where: { id: input.clientId } });
-      if (!client) {
-        throw new Error('Client not found');
-      }
+    if (!machine.clientId) {
+      throw new Error('Machine must have a client assignment before installation');
+    }
+
+    if (input.clientId && input.clientId !== machine.clientId) {
+      throw new Error('Provided clientId does not match machine client assignment');
     }
 
     const installation = await prisma.installation.create({
       data: {
         machineId: input.machineId,
-        clientId: input.clientId,
+        clientId: machine.clientId,
         installedAt: input.installedAt ? new Date(input.installedAt) : new Date(),
         installedBy: installedByUserId,
         latitude: input.latitude,
@@ -48,7 +49,10 @@ export class InstallationService {
     // Update machine status to INSTALLED
     const updatedMachine = await prisma.machine.update({
       where: { id: input.machineId },
-      data: { status: 'INSTALLED' },
+      data: {
+        status: 'INSTALLED',
+        installationId: installation.id,
+      },
     });
 
     // Add machine status history entry
@@ -110,6 +114,10 @@ export class InstallationService {
       throw new Error('Installation not found');
     }
 
+    if (input.clientId !== undefined && input.clientId !== existing.clientId) {
+      throw new Error('Changing installation clientId is not allowed');
+    }
+
     if (input.status && !isInstallationStatus(input.status)) {
       throw new Error('Invalid status');
     }
@@ -117,7 +125,7 @@ export class InstallationService {
     const updated = await prisma.installation.update({
       where: { id },
       data: {
-        clientId: input.clientId === undefined ? undefined : input.clientId,
+        clientId: undefined,
         latitude: input.latitude === undefined ? undefined : input.latitude,
         longitude: input.longitude === undefined ? undefined : input.longitude,
         siteAddress: input.siteAddress === undefined ? undefined : input.siteAddress,
@@ -134,7 +142,10 @@ export class InstallationService {
     if (input.status === 'REMOVED' && existing.status !== 'REMOVED') {
       await prisma.machine.update({
         where: { id: existing.machineId },
-        data: { status: 'DELIVERED' },
+        data: {
+          status: 'DELIVERED',
+          installationId: null,
+        },
       });
 
       await prisma.machineStatusHistory.create({
@@ -160,7 +171,10 @@ export class InstallationService {
     // Update machine status back to DELIVERED
     await prisma.machine.update({
       where: { id: existing.machineId },
-      data: { status: 'DELIVERED' },
+      data: {
+        status: 'DELIVERED',
+        installationId: null,
+      },
     });
 
     await prisma.machineStatusHistory.create({

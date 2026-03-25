@@ -25,7 +25,7 @@ export interface BackendMachine {
   status: BackendMachineStatus;
   warehouseId: string;
   clientId?: string | null;
-  installationLocation?: string | null;
+  installationId?: string | null;
   createdAt: string;
   updatedAt: string;
   warehouse?: {
@@ -39,6 +39,11 @@ export interface BackendMachine {
     city?: string | null;
     address?: string | null;
   } | null;
+  installation?: {
+    id: string;
+    siteAddress?: string | null;
+    siteNotes?: string | null;
+  } | null;
 }
 
 export interface CreateMachineInput {
@@ -48,7 +53,37 @@ export interface CreateMachineInput {
   warehouseId: string;
   purchaseDate?: string;
   cost?: number;
-  installationLocation?: string;
+}
+
+export interface UpdateMachineInput {
+  serialNumber?: string;
+  model?: string;
+  category?: string;
+  warehouseId?: string;
+  purchaseDate?: string;
+  cost?: number;
+  installationId?: string;
+  status?: BackendMachineStatus;
+  comment?: string;
+}
+
+export interface MachineHistoryEntry {
+  id: string;
+  machineId: string;
+  fromStatus: string;
+  toStatus: BackendMachineStatus;
+  changedBy: string;
+  changedByName?: string;
+  comment?: string | null;
+  createdAt: string;
+}
+
+export interface InstallationStatusInput {
+  installedAt?: string;
+  latitude?: number;
+  longitude?: number;
+  siteAddress?: string;
+  siteNotes?: string;
 }
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
@@ -70,9 +105,9 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
 };
 
 export const machineService = {
-  async list(): Promise<BackendMachine[]> {
+  async list(params?: { status?: string; warehouseId?: string; model?: string; serialNumber?: string }): Promise<BackendMachine[]> {
     try {
-      const response = await api.get<BackendResponse<BackendMachine[]>>('/machines');
+      const response = await api.get<BackendResponse<BackendMachine[]>>('/machines', { params });
 
       if (!response.data?.success || !response.data?.data) {
         throw new Error(response.data?.message || 'Failed to fetch machines');
@@ -95,6 +130,59 @@ export const machineService = {
       return response.data.data;
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to create machine'));
+    }
+  },
+
+  async update(id: string, input: UpdateMachineInput): Promise<BackendMachine> {
+    try {
+      const response = await api.put<BackendResponse<BackendMachine>>(`/machines/${id}`, input);
+
+      if (!response.data?.success || !response.data?.data) {
+        throw new Error(response.data?.message || 'Failed to update machine');
+      }
+
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to update machine'));
+    }
+  },
+
+  async updateStatus(
+    id: string,
+    status: BackendMachineStatus,
+    comment?: string,
+    installation?: InstallationStatusInput
+  ): Promise<BackendMachine> {
+    try {
+      const response = await api.patch<BackendResponse<BackendMachine>>(`/machines/${id}/status`, {
+        status,
+        comment,
+        installation,
+      });
+
+      if (!response.data?.success || !response.data?.data) {
+        throw new Error(response.data?.message || 'Failed to update machine status');
+      }
+
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to update machine status'));
+    }
+  },
+
+  async history(machineId: string): Promise<MachineHistoryEntry[]> {
+    try {
+      const response = await api.get<BackendResponse<MachineHistoryEntry[]>>(
+        `/machines/${machineId}/history`
+      );
+
+      if (!response.data?.success || !response.data?.data) {
+        throw new Error(response.data?.message || 'Failed to fetch machine history');
+      }
+
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to fetch machine history'));
     }
   },
 };

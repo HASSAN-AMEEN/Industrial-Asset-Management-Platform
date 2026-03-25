@@ -15,5 +15,6 @@ router.post('/', (0, rbac_middleware_1.requireAnyRole)([client_1.UserRole.SUPER_
 router.put('/:id', (0, rbac_middleware_1.requireAnyRole)([client_1.UserRole.SUPER_ADMIN, client_1.UserRole.WAREHOUSE_MANAGER, client_1.UserRole.SALES_OPS]), controller.update.bind(controller));
 router.patch('/:id/status', (0, rbac_middleware_1.requireAnyRole)([client_1.UserRole.SUPER_ADMIN, client_1.UserRole.WAREHOUSE_MANAGER, client_1.UserRole.SALES_OPS]), controller.setStatus.bind(controller));
 router.patch('/:id/deliver', (0, rbac_middleware_1.requireAnyRole)([client_1.UserRole.SUPER_ADMIN, client_1.UserRole.WAREHOUSE_MANAGER, client_1.UserRole.SALES_OPS]), controller.deliver.bind(controller));
+router.patch('/:id/cancel', (0, rbac_middleware_1.requireAnyRole)([client_1.UserRole.SUPER_ADMIN, client_1.UserRole.WAREHOUSE_MANAGER, client_1.UserRole.SALES_OPS]), controller.cancel.bind(controller));
 exports.default = router;
 //# sourceMappingURL=shipment.routes.js.map

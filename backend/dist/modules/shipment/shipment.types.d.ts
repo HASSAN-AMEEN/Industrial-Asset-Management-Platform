@@ -1,18 +1,23 @@
 export declare const SHIPMENT_STATUSES: readonly ["CREATED", "DISPATCHED", "IN_TRANSIT", "DELIVERED", "CANCELLED"];
 export type ShipmentStatus = typeof SHIPMENT_STATUSES[number];
 export interface CreateShipmentInput {
-    machineId: string;
+    machineIds: string[];
     fromWarehouseId: string;
     toWarehouseId?: string;
     toClientId?: string;
+    client?: {
+        name: string;
+        contact?: string;
+        address?: string;
+        city?: string;
+        country?: string;
+    };
     shipmentDate?: string;
     expectedDeliveryDate?: string;
     notes?: string;
 }
 export interface UpdateShipmentInput {
-    toWarehouseId?: string | null;
-    toClientId?: string | null;
-    shipmentDate?: string;
+    machineIds?: string[];
     expectedDeliveryDate?: string | null;
     notes?: string | null;
 }

@@ -13,7 +13,7 @@ class MachineController {
                 res.status(401).json({ success: false, message: 'Unauthorized' });
                 return;
             }
-            const { serialNumber, model, category, purchaseDate, cost, warehouseId, clientId, installationLocation } = req.body;
+            const { serialNumber, model, category, purchaseDate, cost, warehouseId, clientId } = req.body;
             if (!serialNumber || !model || !category) {
                 res.status(400).json({ success: false, message: 'serialNumber, model, category are required' });
                 return;
@@ -38,7 +38,6 @@ class MachineController {
                 cost,
                 warehouseId: finalWarehouseId,
                 clientId,
-                installationLocation,
             }, req.user.id);
             res.status(201).json({ success: true, message: 'Machine created successfully', data: machine });
         }
@@ -112,19 +111,20 @@ class MachineController {
                 res.status(403).json({ success: false, message: 'Forbidden' });
                 return;
             }
-            const { model, category, purchaseDate, cost, warehouseId, clientId, installationLocation, status, comment } = req.body;
+            const { serialNumber, model, category, purchaseDate, cost, warehouseId, clientId, installationId, status, comment } = req.body;
             let finalWarehouseId = warehouseId;
             if (req.user.role === client_1.UserRole.WAREHOUSE_MANAGER) {
                 finalWarehouseId = req.user.warehouseId ?? undefined;
             }
             const updated = await this.machineService.update(id, {
+                serialNumber,
                 model,
                 category,
                 purchaseDate,
                 cost,
                 warehouseId: finalWarehouseId,
                 clientId,
-                installationLocation,
+                installationId,
                 status,
             }, req.user.id, comment);
             res.status(200).json({ success: true, message: 'Machine updated successfully', data: updated });
@@ -172,12 +172,12 @@ class MachineController {
                 res.status(403).json({ success: false, message: 'Forbidden' });
                 return;
             }
-            const { status, comment } = req.body;
+            const { status, comment, installation } = req.body;
             if (!status) {
                 res.status(400).json({ success: false, message: 'status is required' });
                 return;
             }
-            const updated = await this.machineService.updateStatus(id, status, req.user.id, comment);
+            const updated = await this.machineService.updateStatus(id, status, req.user.id, comment, installation);
             res.status(200).json({ success: true, message: 'Status updated successfully', data: updated });
         }
         catch (error) {

@@ -8,16 +8,16 @@ export interface CreateMachineInput {
     cost?: number;
     warehouseId: string;
     clientId?: string;
-    installationLocation?: string;
 }
 export interface UpdateMachineInput {
+    serialNumber?: string;
     model?: string;
     category?: string;
     purchaseDate?: string;
     cost?: number;
     warehouseId?: string;
     clientId?: string | null;
-    installationLocation?: string | null;
+    installationId?: string | null;
     status?: MachineStatus;
 }
 //# sourceMappingURL=machine.types.d.ts.map

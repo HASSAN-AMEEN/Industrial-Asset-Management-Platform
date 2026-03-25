@@ -36,14 +36,14 @@ export declare class ClientService {
             purchaseDate: Date | null;
             cost: import("@prisma/client/runtime/library").Decimal | null;
             clientId: string | null;
-            installationLocation: string | null;
+            installationId: string | null;
         }[];
         shipments: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             status: import(".prisma/client").$Enums.ShipmentStatus;
-            machineId: string;
+            trackingId: string | null;
             shipmentDate: Date;
             expectedDeliveryDate: Date | null;
             deliveryConfirmation: string | null;

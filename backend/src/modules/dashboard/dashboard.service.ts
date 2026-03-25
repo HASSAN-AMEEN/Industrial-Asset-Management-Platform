@@ -66,14 +66,6 @@ export class DashboardService {
               ],
             }
           : undefined,
-        include: {
-          machine: {
-            select: {
-              model: true,
-              serialNumber: true,
-            },
-          },
-        },
         orderBy: { updatedAt: 'desc' },
         take: 6,
       }),
@@ -126,7 +118,7 @@ export class DashboardService {
       id: `shipment-${shipment.id}`,
       type: 'shipment',
       title: `Shipment ${shipment.status}`,
-      description: `${shipment.machine.model} (${shipment.machine.serialNumber})`,
+      description: shipment.toClientId ? 'Destination: Client' : 'Destination: Warehouse',
       createdAt: shipment.updatedAt.toISOString(),
     }));
 

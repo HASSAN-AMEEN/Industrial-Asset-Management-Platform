@@ -14,7 +14,7 @@ export class MachineController {
         return;
       }
 
-      const { serialNumber, model, category, purchaseDate, cost, warehouseId, clientId, installationLocation } = req.body;
+      const { serialNumber, model, category, purchaseDate, cost, warehouseId, clientId } = req.body;
 
       if (!serialNumber || !model || !category) {
         res.status(400).json({ success: false, message: 'serialNumber, model, category are required' });
@@ -45,7 +45,6 @@ export class MachineController {
           cost,
           warehouseId: finalWarehouseId,
           clientId,
-          installationLocation,
         },
         req.user.id
       );
@@ -135,7 +134,7 @@ export class MachineController {
         return;
       }
 
-      const { model, category, purchaseDate, cost, warehouseId, clientId, installationLocation, status, comment } = req.body;
+      const { serialNumber, model, category, purchaseDate, cost, warehouseId, clientId, installationId, status, comment } = req.body;
 
       let finalWarehouseId = warehouseId as string | undefined;
       if (req.user.role === UserRole.WAREHOUSE_MANAGER) {
@@ -145,13 +144,14 @@ export class MachineController {
       const updated = await this.machineService.update(
         id,
         {
+          serialNumber,
           model,
           category,
           purchaseDate,
           cost,
           warehouseId: finalWarehouseId,
           clientId,
-          installationLocation,
+          installationId,
           status,
         },
         req.user.id,
@@ -209,13 +209,23 @@ export class MachineController {
         return;
       }
 
-      const { status, comment } = req.body as { status: MachineStatus; comment?: string };
+      const { status, comment, installation } = req.body as {
+        status: MachineStatus;
+        comment?: string;
+        installation?: {
+          installedAt?: string;
+          latitude?: number;
+          longitude?: number;
+          siteAddress?: string;
+          siteNotes?: string;
+        };
+      };
       if (!status) {
         res.status(400).json({ success: false, message: 'status is required' });
         return;
       }
 
-      const updated = await this.machineService.updateStatus(id, status, req.user.id, comment);
+      const updated = await this.machineService.updateStatus(id, status, req.user.id, comment, installation);
       res.status(200).json({ success: true, message: 'Status updated successfully', data: updated });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || 'Failed to update status' });

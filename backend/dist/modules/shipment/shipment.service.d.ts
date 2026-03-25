@@ -1,20 +1,30 @@
 import { CreateShipmentInput, DeliverShipmentInput, ShipmentStatus, UpdateShipmentInput } from './shipment.types';
 export declare class ShipmentService {
+    private readonly shipmentInclude;
+    private buildTrackingId;
+    private formatDateForLog;
     create(input: CreateShipmentInput, updatedByUserId: string): Promise<{
-        machine: {
+        items: ({
+            machine: {
+                id: string;
+                model: string;
+                createdAt: Date;
+                updatedAt: Date;
+                warehouseId: string;
+                category: string;
+                status: string;
+                serialNumber: string;
+                purchaseDate: Date | null;
+                cost: import("@prisma/client/runtime/library").Decimal | null;
+                clientId: string | null;
+                installationId: string | null;
+            };
+        } & {
             id: string;
-            model: string;
             createdAt: Date;
-            updatedAt: Date;
-            warehouseId: string;
-            category: string;
-            status: string;
-            serialNumber: string;
-            purchaseDate: Date | null;
-            cost: import("@prisma/client/runtime/library").Decimal | null;
-            clientId: string | null;
-            installationLocation: string | null;
-        };
+            machineId: string;
+            shipmentId: string;
+        })[];
         fromWarehouse: {
             id: string;
             name: string;
@@ -52,7 +62,7 @@ export declare class ShipmentService {
         createdAt: Date;
         updatedAt: Date;
         status: import(".prisma/client").$Enums.ShipmentStatus;
-        machineId: string;
+        trackingId: string | null;
         shipmentDate: Date;
         expectedDeliveryDate: Date | null;
         deliveryConfirmation: string | null;
@@ -71,20 +81,27 @@ export declare class ShipmentService {
         toWarehouseId?: string;
         toClientId?: string;
     }): Promise<({
-        machine: {
+        items: ({
+            machine: {
+                id: string;
+                model: string;
+                createdAt: Date;
+                updatedAt: Date;
+                warehouseId: string;
+                category: string;
+                status: string;
+                serialNumber: string;
+                purchaseDate: Date | null;
+                cost: import("@prisma/client/runtime/library").Decimal | null;
+                clientId: string | null;
+                installationId: string | null;
+            };
+        } & {
             id: string;
-            model: string;
             createdAt: Date;
-            updatedAt: Date;
-            warehouseId: string;
-            category: string;
-            status: string;
-            serialNumber: string;
-            purchaseDate: Date | null;
-            cost: import("@prisma/client/runtime/library").Decimal | null;
-            clientId: string | null;
-            installationLocation: string | null;
-        };
+            machineId: string;
+            shipmentId: string;
+        })[];
         fromWarehouse: {
             id: string;
             name: string;
@@ -122,7 +139,7 @@ export declare class ShipmentService {
         createdAt: Date;
         updatedAt: Date;
         status: import(".prisma/client").$Enums.ShipmentStatus;
-        machineId: string;
+        trackingId: string | null;
         shipmentDate: Date;
         expectedDeliveryDate: Date | null;
         deliveryConfirmation: string | null;
@@ -133,20 +150,27 @@ export declare class ShipmentService {
         toClientId: string | null;
     })[]>;
     getById(id: string): Promise<({
-        machine: {
+        items: ({
+            machine: {
+                id: string;
+                model: string;
+                createdAt: Date;
+                updatedAt: Date;
+                warehouseId: string;
+                category: string;
+                status: string;
+                serialNumber: string;
+                purchaseDate: Date | null;
+                cost: import("@prisma/client/runtime/library").Decimal | null;
+                clientId: string | null;
+                installationId: string | null;
+            };
+        } & {
             id: string;
-            model: string;
             createdAt: Date;
-            updatedAt: Date;
-            warehouseId: string;
-            category: string;
-            status: string;
-            serialNumber: string;
-            purchaseDate: Date | null;
-            cost: import("@prisma/client/runtime/library").Decimal | null;
-            clientId: string | null;
-            installationLocation: string | null;
-        };
+            machineId: string;
+            shipmentId: string;
+        })[];
         fromWarehouse: {
             id: string;
             name: string;
@@ -184,7 +208,7 @@ export declare class ShipmentService {
         createdAt: Date;
         updatedAt: Date;
         status: import(".prisma/client").$Enums.ShipmentStatus;
-        machineId: string;
+        trackingId: string | null;
         shipmentDate: Date;
         expectedDeliveryDate: Date | null;
         deliveryConfirmation: string | null;
@@ -195,20 +219,27 @@ export declare class ShipmentService {
         toClientId: string | null;
     }) | null>;
     update(id: string, input: UpdateShipmentInput, updatedByUserId: string): Promise<{
-        machine: {
+        items: ({
+            machine: {
+                id: string;
+                model: string;
+                createdAt: Date;
+                updatedAt: Date;
+                warehouseId: string;
+                category: string;
+                status: string;
+                serialNumber: string;
+                purchaseDate: Date | null;
+                cost: import("@prisma/client/runtime/library").Decimal | null;
+                clientId: string | null;
+                installationId: string | null;
+            };
+        } & {
             id: string;
-            model: string;
             createdAt: Date;
-            updatedAt: Date;
-            warehouseId: string;
-            category: string;
-            status: string;
-            serialNumber: string;
-            purchaseDate: Date | null;
-            cost: import("@prisma/client/runtime/library").Decimal | null;
-            clientId: string | null;
-            installationLocation: string | null;
-        };
+            machineId: string;
+            shipmentId: string;
+        })[];
         fromWarehouse: {
             id: string;
             name: string;
@@ -246,7 +277,7 @@ export declare class ShipmentService {
         createdAt: Date;
         updatedAt: Date;
         status: import(".prisma/client").$Enums.ShipmentStatus;
-        machineId: string;
+        trackingId: string | null;
         shipmentDate: Date;
         expectedDeliveryDate: Date | null;
         deliveryConfirmation: string | null;
@@ -257,20 +288,27 @@ export declare class ShipmentService {
         toClientId: string | null;
     }>;
     setStatus(id: string, status: ShipmentStatus, updatedByUserId: string, comment?: string): Promise<{
-        machine: {
+        items: ({
+            machine: {
+                id: string;
+                model: string;
+                createdAt: Date;
+                updatedAt: Date;
+                warehouseId: string;
+                category: string;
+                status: string;
+                serialNumber: string;
+                purchaseDate: Date | null;
+                cost: import("@prisma/client/runtime/library").Decimal | null;
+                clientId: string | null;
+                installationId: string | null;
+            };
+        } & {
             id: string;
-            model: string;
             createdAt: Date;
-            updatedAt: Date;
-            warehouseId: string;
-            category: string;
-            status: string;
-            serialNumber: string;
-            purchaseDate: Date | null;
-            cost: import("@prisma/client/runtime/library").Decimal | null;
-            clientId: string | null;
-            installationLocation: string | null;
-        };
+            machineId: string;
+            shipmentId: string;
+        })[];
         fromWarehouse: {
             id: string;
             name: string;
@@ -308,7 +346,7 @@ export declare class ShipmentService {
         createdAt: Date;
         updatedAt: Date;
         status: import(".prisma/client").$Enums.ShipmentStatus;
-        machineId: string;
+        trackingId: string | null;
         shipmentDate: Date;
         expectedDeliveryDate: Date | null;
         deliveryConfirmation: string | null;
@@ -319,20 +357,27 @@ export declare class ShipmentService {
         toClientId: string | null;
     }>;
     deliver(id: string, input: DeliverShipmentInput, updatedByUserId: string): Promise<{
-        machine: {
+        items: ({
+            machine: {
+                id: string;
+                model: string;
+                createdAt: Date;
+                updatedAt: Date;
+                warehouseId: string;
+                category: string;
+                status: string;
+                serialNumber: string;
+                purchaseDate: Date | null;
+                cost: import("@prisma/client/runtime/library").Decimal | null;
+                clientId: string | null;
+                installationId: string | null;
+            };
+        } & {
             id: string;
-            model: string;
             createdAt: Date;
-            updatedAt: Date;
-            warehouseId: string;
-            category: string;
-            status: string;
-            serialNumber: string;
-            purchaseDate: Date | null;
-            cost: import("@prisma/client/runtime/library").Decimal | null;
-            clientId: string | null;
-            installationLocation: string | null;
-        };
+            machineId: string;
+            shipmentId: string;
+        })[];
         fromWarehouse: {
             id: string;
             name: string;
@@ -370,7 +415,76 @@ export declare class ShipmentService {
         createdAt: Date;
         updatedAt: Date;
         status: import(".prisma/client").$Enums.ShipmentStatus;
-        machineId: string;
+        trackingId: string | null;
+        shipmentDate: Date;
+        expectedDeliveryDate: Date | null;
+        deliveryConfirmation: string | null;
+        updatedBy: string;
+        notes: string | null;
+        fromWarehouseId: string;
+        toWarehouseId: string | null;
+        toClientId: string | null;
+    }>;
+    cancel(id: string, updatedByUserId: string, comment?: string): Promise<{
+        items: ({
+            machine: {
+                id: string;
+                model: string;
+                createdAt: Date;
+                updatedAt: Date;
+                warehouseId: string;
+                category: string;
+                status: string;
+                serialNumber: string;
+                purchaseDate: Date | null;
+                cost: import("@prisma/client/runtime/library").Decimal | null;
+                clientId: string | null;
+                installationId: string | null;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            machineId: string;
+            shipmentId: string;
+        })[];
+        fromWarehouse: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            address: string;
+            city: string;
+            manager: string | null;
+            contact: string | null;
+            capacity: number | null;
+        };
+        toWarehouse: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            address: string;
+            city: string;
+            manager: string | null;
+            contact: string | null;
+            capacity: number | null;
+        } | null;
+        toClient: {
+            id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
+            address: string | null;
+            city: string | null;
+            contact: string | null;
+            country: string | null;
+        } | null;
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import(".prisma/client").$Enums.ShipmentStatus;
+        trackingId: string | null;
         shipmentDate: Date;
         expectedDeliveryDate: Date | null;
         deliveryConfirmation: string | null;
@@ -381,6 +495,10 @@ export declare class ShipmentService {
         toClientId: string | null;
     }>;
     history(shipmentId: string): Promise<{
+        changedByUser: {
+            id: string;
+            email: string;
+        } | null;
         id: string;
         createdAt: Date;
         fromStatus: import(".prisma/client").$Enums.ShipmentStatus;

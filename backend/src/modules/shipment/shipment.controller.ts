@@ -15,18 +15,33 @@ export class ShipmentController {
       }
 
       const body = req.body as CreateShipmentInput;
-      if (!body.machineId || !body.fromWarehouseId) {
-        res.status(400).json({ success: false, message: 'machineId and fromWarehouseId are required' });
+      if (!Array.isArray(body.machineIds) || body.machineIds.length === 0) {
+        res.status(400).json({ success: false, message: 'machineIds is required' });
         return;
       }
 
-      if (!!body.toWarehouseId === !!body.toClientId) {
-        res.status(400).json({ success: false, message: 'Either toWarehouseId or toClientId is required (but not both)' });
+      const destinationCount = Number(!!body.toWarehouseId) + Number(!!body.toClientId) + Number(!!body.client);
+      if (destinationCount !== 1) {
+        res.status(400).json({ success: false, message: 'Destination must be exactly one of: toWarehouseId, toClientId, or client' });
         return;
       }
 
       if (req.user.role === UserRole.WAREHOUSE_MANAGER) {
-        if (!req.user.warehouseId || req.user.warehouseId !== body.fromWarehouseId) {
+        if (!req.user.warehouseId) {
+          res.status(403).json({ success: false, message: 'Forbidden' });
+          return;
+        }
+
+        body.fromWarehouseId = req.user.warehouseId;
+      }
+
+      if (!body.fromWarehouseId) {
+        res.status(400).json({ success: false, message: 'fromWarehouseId is required' });
+        return;
+      }
+
+      if (req.user.role === UserRole.WAREHOUSE_MANAGER) {
+        if (req.user.warehouseId !== body.fromWarehouseId) {
           res.status(403).json({ success: false, message: 'Forbidden' });
           return;
         }
@@ -175,6 +190,33 @@ export class ShipmentController {
       res.status(200).json({ success: true, message: 'Shipment delivered successfully', data: delivered });
     } catch (error: any) {
       res.status(400).json({ success: false, message: error.message || 'Failed to deliver shipment' });
+    }
+  }
+
+  async cancel(req: AuthenticatedRequest, res: Response): Promise<void> {
+    try {
+      if (!req.user) {
+        res.status(401).json({ success: false, message: 'Unauthorized' });
+        return;
+      }
+
+      const { id } = req.params;
+      const existing = await this.shipmentService.getById(id);
+      if (!existing) {
+        res.status(404).json({ success: false, message: 'Shipment not found' });
+        return;
+      }
+
+      if (req.user.role === UserRole.WAREHOUSE_MANAGER && req.user.warehouseId !== existing.fromWarehouseId) {
+        res.status(403).json({ success: false, message: 'Forbidden' });
+        return;
+      }
+
+      const payload = req.body as { comment?: string };
+      const cancelled = await this.shipmentService.cancel(id, req.user.id, payload.comment);
+      res.status(200).json({ success: true, message: 'Shipment cancelled successfully', data: cancelled });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message || 'Failed to cancel shipment' });
     }
   }
 

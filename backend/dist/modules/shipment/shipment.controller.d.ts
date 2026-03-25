@@ -8,6 +8,7 @@ export declare class ShipmentController {
     update(req: AuthenticatedRequest, res: Response): Promise<void>;
     setStatus(req: AuthenticatedRequest, res: Response): Promise<void>;
     deliver(req: AuthenticatedRequest, res: Response): Promise<void>;
+    cancel(req: AuthenticatedRequest, res: Response): Promise<void>;
     history(req: AuthenticatedRequest, res: Response): Promise<void>;
 }
 //# sourceMappingURL=shipment.controller.d.ts.map
