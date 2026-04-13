@@ -40,13 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
     >
       <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
       <View style={styles.content}>
-        <View style={styles.left}>
-          {showBack && (
-            <Pressable onPress={onBackPress} style={styles.backButton}>
-              <Icon name="arrow-left" size={24} color={Colors.textPrimary} />
-            </Pressable>
-          )}
-        </View>
+        <View style={styles.left} />
 
         <View style={styles.center}>
           <Text style={styles.title} numberOfLines={1}>
@@ -113,7 +107,7 @@ const styles = StyleSheet.create({
   },
   title: {
     color: Colors.textPrimary,
-    fontSize: FontSizes.lg,
+    fontSize: FontSizes.xl,
     fontWeight: '600',
   },
   subtitle: {

@@ -14,6 +14,48 @@ import { Button, Input } from '../components';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useResponsive } from '../hooks/useResponsive';
 
+const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
+const NETWORK_ERROR_MESSAGE = 'Unable to connect. Please check your connection and try again';
+const GENERIC_ERROR_MESSAGE = 'Something went wrong. Please try again';
+
+const mapLoginErrorMessage = (error: unknown): string => {
+  const maybeError = error as {
+    message?: string;
+    code?: string;
+    response?: { status?: number; data?: { message?: string; error?: string } };
+  };
+
+  const responseStatus = maybeError?.response?.status;
+  const responseMessage = (
+    maybeError?.response?.data?.message || maybeError?.response?.data?.error || ''
+  ).toLowerCase();
+  const rawMessage = (maybeError?.message || '').toLowerCase();
+  const code = (maybeError?.code || '').toLowerCase();
+
+  if (
+    responseStatus === 401 ||
+    responseMessage.includes('invalid email or password') ||
+    responseMessage.includes('invalid credentials') ||
+    rawMessage.includes('invalid email or password') ||
+    rawMessage.includes('invalid credentials')
+  ) {
+    return INVALID_CREDENTIALS_MESSAGE;
+  }
+
+  if (
+    code === 'err_network' ||
+    code === 'econnaborted' ||
+    rawMessage.includes('network error') ||
+    rawMessage.includes('timeout') ||
+    rawMessage.includes('failed to fetch') ||
+    rawMessage.includes('unable to connect')
+  ) {
+    return NETWORK_ERROR_MESSAGE;
+  }
+
+  return GENERIC_ERROR_MESSAGE;
+};
+
 interface LoginScreenProps {
   onLogin?: (email: string, password: string) => Promise<void> | void;
   onNavigateToSignup?: () => void;
@@ -55,8 +97,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
     try {
       await onLogin?.(email.trim(), password);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Login failed';
-      setErrorMessage(message);
+      setErrorMessage(mapLoginErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -78,7 +119,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
             <View style={styles.logoContainer}>
               <Icon name="cog-outline" size={40} color={Colors.primary} />
             </View>
-            <Text style={styles.appName}>IronTrack</Text>
+            <Text style={styles.appName}>Tayyab Traders</Text>
             <Text style={styles.tagline}>Industrial Equipment Management</Text>
           </View>
 
@@ -94,7 +135,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
                 label="Email"
                 placeholder="Enter your email"
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  if (errorMessage) setErrorMessage('');
+                }}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -106,7 +150,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
                 label="Password"
                 placeholder="Enter your password"
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(value) => {
+                  setPassword(value);
+                  if (errorMessage) setErrorMessage('');
+                }}
                 secureTextEntry
                 leftIcon="lock-outline"
                 error={errors.password}

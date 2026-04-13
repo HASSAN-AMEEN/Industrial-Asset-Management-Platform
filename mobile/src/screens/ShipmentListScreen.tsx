@@ -13,7 +13,7 @@ import {
   Alert,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
 import { Header, SearchBar, ShipmentCard, FAB, EmptyState, Input, Button } from '../components';
@@ -99,6 +99,7 @@ interface ShipmentListScreenProps {
 
 export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPress }) => {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [shipments, setShipments] = React.useState<BackendShipment[]>([]);
   const [warehouses, setWarehouses] = React.useState<Warehouse[]>([]);
@@ -370,7 +371,7 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={['bottom']}>
         <Header title="Shipments" showBack onBackPress={onBackPress} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={Colors.primary} />
@@ -382,7 +383,7 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
   const destinationWarehouseOptions = warehouses.filter((w) => w.id !== form.fromWarehouseId);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       <Header title="Shipments" subtitle={`${shipments.length} total shipments`} showBack onBackPress={onBackPress} />
 
       <View style={styles.searchContainer}>
@@ -427,10 +428,15 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
 
       <FAB icon="plus" onPress={openCreate} style={styles.fab} backgroundColor={Colors.secondary} />
 
-      <Modal visible={isFormOpen} animationType="slide" onRequestClose={() => setIsFormOpen(false)}>
+      <Modal
+        visible={isFormOpen}
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setIsFormOpen(false)}
+      >
         <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-            <View style={styles.modalHeader}>
+            <View style={[styles.modalHeader, { paddingTop: Math.max(Spacing.md, insets.top + Spacing.xs) }]}>
               <Pressable onPress={() => setIsFormOpen(false)}>
                 <Icon name="close" size={22} color={Colors.textSecondary} />
               </Pressable>
@@ -595,9 +601,14 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
         </SafeAreaView>
       </Modal>
 
-      <Modal visible={isDetailOpen} animationType="slide" onRequestClose={() => setIsDetailOpen(false)}>
+      <Modal
+        visible={isDetailOpen}
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => setIsDetailOpen(false)}
+      >
         <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
-          <View style={styles.modalHeader}>
+          <View style={[styles.modalHeader, { paddingTop: Math.max(Spacing.md, insets.top + Spacing.xs) }]}>
             <Pressable onPress={() => setIsDetailOpen(false)}>
               <Icon name="close" size={22} color={Colors.textSecondary} />
             </Pressable>

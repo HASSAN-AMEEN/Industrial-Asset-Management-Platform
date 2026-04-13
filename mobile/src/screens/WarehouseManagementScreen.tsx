@@ -214,7 +214,7 @@ export const WarehouseManagementScreen: React.FC = () => {
 
   if (user?.role !== 'SUPER_ADMIN') {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
+      <SafeAreaView style={styles.container} edges={['bottom']}>
         <Header title="Warehouse Management" subtitle={`Signed in as ${formatRole(user?.role)}`} />
         <View style={styles.centerContent}>
           <EmptyState
@@ -228,7 +228,7 @@ export const WarehouseManagementScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       <Header title="Warehouse Management" subtitle={`${warehouses.length} warehouses`} />
 
       <ScrollView

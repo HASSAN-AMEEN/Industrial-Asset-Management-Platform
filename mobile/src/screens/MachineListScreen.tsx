@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
-import { Header, MachineCard, FAB, EmptyState, Input, Button, Card, StatusBadge } from '../components';
+import { Header, MachineCard, FAB, EmptyState, Input, Button, Card, StatusBadge, SearchBar } from '../components';
 import machineService, {
   BackendMachine,
   BackendMachineStatus,
@@ -86,6 +86,12 @@ const parseDateInput = (value?: string | null): string => {
   return d.toISOString().slice(0, 10);
 };
 
+const parseFilterDate = (value: string): Date | null => {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   onMachinePress,
   onBackPress,
@@ -117,6 +123,14 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   const [pendingInstallationNotes, setPendingInstallationNotes] = React.useState('');
   const [installComment, setInstallComment] = React.useState('');
   const [installError, setInstallError] = React.useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
+  const [activeFilterDropdown, setActiveFilterDropdown] = React.useState<'status' | 'warehouse' | 'category' | null>(null);
+  const [statusFilter, setStatusFilter] = React.useState<'ALL' | BackendMachineStatus>('ALL');
+  const [warehouseFilter, setWarehouseFilter] = React.useState<string>('ALL');
+  const [categoryFilter, setCategoryFilter] = React.useState<string>('ALL');
+  const [fromDateFilter, setFromDateFilter] = React.useState('');
+  const [toDateFilter, setToDateFilter] = React.useState('');
 
   const loadData = React.useCallback(async () => {
     try {
@@ -357,6 +371,67 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   const selectedWarehouseName =
     warehouses.find((warehouse) => warehouse.id === form.warehouseId)?.name || 'Select warehouse';
 
+  const categoryOptions = React.useMemo(() => {
+    const categories = Array.from(new Set(machines.map((machine) => machine.category).filter(Boolean)));
+    return categories.sort((a, b) => a.localeCompare(b));
+  }, [machines]);
+
+  const filteredMachines = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const fromDate = parseFilterDate(fromDateFilter);
+    const toDate = parseFilterDate(toDateFilter);
+
+    return machines.filter((machine) => {
+      const serialMatches = !q || machine.serialNumber.toLowerCase().includes(q);
+      const statusMatches = statusFilter === 'ALL' || machine.status === statusFilter;
+      const warehouseMatches = warehouseFilter === 'ALL' || machine.warehouseId === warehouseFilter;
+      const categoryMatches =
+        categoryFilter === 'ALL' || machine.category.toLowerCase() === categoryFilter.toLowerCase();
+
+      if (!serialMatches || !statusMatches || !warehouseMatches || !categoryMatches) {
+        return false;
+      }
+
+      if (!fromDate && !toDate) {
+        return true;
+      }
+
+      const machineDateValue = parseDateInput(machine.purchaseDate);
+      if (!machineDateValue) {
+        return false;
+      }
+
+      const machineDate = parseFilterDate(machineDateValue);
+      if (!machineDate) {
+        return false;
+      }
+
+      if (fromDate && machineDate < fromDate) {
+        return false;
+      }
+
+      if (toDate) {
+        const toEnd = new Date(toDate);
+        toEnd.setHours(23, 59, 59, 999);
+        if (machineDate > toEnd) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [machines, searchQuery, statusFilter, warehouseFilter, categoryFilter, fromDateFilter, toDateFilter]);
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('ALL');
+    setWarehouseFilter('ALL');
+    setCategoryFilter('ALL');
+    setFromDateFilter('');
+    setToDateFilter('');
+    setActiveFilterDropdown(null);
+  };
+
   const renderForm = (onSubmit: () => Promise<void>, isEditMode: boolean) => (
     <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <Input
@@ -484,8 +559,120 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   );
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       <Header title="Machines" subtitle={`${machines.length} total machines`} showBack onBackPress={onBackPress} />
+
+      <View style={styles.searchContainer}>
+        <SearchBar
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search by serial number"
+          showFilter
+          onFilterPress={() => {
+            setFiltersOpen((prev) => !prev);
+            setActiveFilterDropdown(null);
+          }}
+        />
+      </View>
+
+      {filtersOpen && (
+        <View style={styles.filtersPanel}>
+          <Text style={styles.filterLabel}>Status</Text>
+          <Pressable
+            style={styles.filterDropdown}
+            onPress={() =>
+              setActiveFilterDropdown((prev) => (prev === 'status' ? null : 'status'))
+            }
+          >
+            <Text style={styles.filterDropdownText}>
+              {statusFilter === 'ALL' ? 'All' : statusFilter.replaceAll('_', ' ')}
+            </Text>
+            <Icon name={activeFilterDropdown === 'status' ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textSecondary} />
+          </Pressable>
+          {activeFilterDropdown === 'status' && (
+            <View style={styles.filterOptions}>
+              <Pressable style={styles.filterOption} onPress={() => { setStatusFilter('ALL'); setActiveFilterDropdown(null); }}>
+                <Text style={styles.filterOptionText}>All</Text>
+              </Pressable>
+              {statusOptions.map((status) => (
+                <Pressable key={status} style={styles.filterOption} onPress={() => { setStatusFilter(status); setActiveFilterDropdown(null); }}>
+                  <Text style={styles.filterOptionText}>{status.replaceAll('_', ' ')}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          <Text style={styles.filterLabel}>Warehouse</Text>
+          <Pressable
+            style={styles.filterDropdown}
+            onPress={() =>
+              setActiveFilterDropdown((prev) => (prev === 'warehouse' ? null : 'warehouse'))
+            }
+          >
+            <Text style={styles.filterDropdownText}>
+              {warehouseFilter === 'ALL'
+                ? 'All'
+                : warehouses.find((warehouse) => warehouse.id === warehouseFilter)?.name || 'All'}
+            </Text>
+            <Icon name={activeFilterDropdown === 'warehouse' ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textSecondary} />
+          </Pressable>
+          {activeFilterDropdown === 'warehouse' && (
+            <View style={styles.filterOptions}>
+              <Pressable style={styles.filterOption} onPress={() => { setWarehouseFilter('ALL'); setActiveFilterDropdown(null); }}>
+                <Text style={styles.filterOptionText}>All</Text>
+              </Pressable>
+              {warehouses.map((warehouse) => (
+                <Pressable key={warehouse.id} style={styles.filterOption} onPress={() => { setWarehouseFilter(warehouse.id); setActiveFilterDropdown(null); }}>
+                  <Text style={styles.filterOptionText}>{warehouse.name}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          <Text style={styles.filterLabel}>Category</Text>
+          <Pressable
+            style={styles.filterDropdown}
+            onPress={() =>
+              setActiveFilterDropdown((prev) => (prev === 'category' ? null : 'category'))
+            }
+          >
+            <Text style={styles.filterDropdownText}>{categoryFilter === 'ALL' ? 'All' : categoryFilter}</Text>
+            <Icon name={activeFilterDropdown === 'category' ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textSecondary} />
+          </Pressable>
+          {activeFilterDropdown === 'category' && (
+            <View style={styles.filterOptions}>
+              <Pressable style={styles.filterOption} onPress={() => { setCategoryFilter('ALL'); setActiveFilterDropdown(null); }}>
+                <Text style={styles.filterOptionText}>All</Text>
+              </Pressable>
+              {categoryOptions.map((category) => (
+                <Pressable key={category} style={styles.filterOption} onPress={() => { setCategoryFilter(category); setActiveFilterDropdown(null); }}>
+                  <Text style={styles.filterOptionText}>{category}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          <Text style={styles.filterLabel}>Purchase Date Range</Text>
+          <View style={styles.dateRangeRow}>
+            <Input
+              label="From"
+              placeholder="YYYY-MM-DD"
+              value={fromDateFilter}
+              onChangeText={setFromDateFilter}
+              containerStyle={styles.dateInput}
+            />
+            <Input
+              label="To"
+              placeholder="YYYY-MM-DD"
+              value={toDateFilter}
+              onChangeText={setToDateFilter}
+              containerStyle={styles.dateInput}
+            />
+          </View>
+
+          <Button title="Clear Filters" variant="outline" onPress={clearFilters} />
+        </View>
+      )}
 
       {errorMessage && (
         <View style={styles.errorContainer}>
@@ -494,7 +681,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
       )}
 
       <FlatList
-        data={machines}
+        data={filteredMachines}
         renderItem={renderMachine}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -506,14 +693,20 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
           <EmptyState
             icon="cog-off"
             title={isLoading ? 'Loading machines...' : 'No machines found'}
-            description={isLoading ? 'Please wait while data is loading.' : 'Add your first machine to start inventory tracking.'}
+            description={
+              isLoading
+                ? 'Please wait while data is loading.'
+                : filtersOpen || searchQuery || statusFilter !== 'ALL' || warehouseFilter !== 'ALL' || categoryFilter !== 'ALL' || fromDateFilter || toDateFilter
+                  ? 'Try adjusting your search or filters.'
+                  : 'Add your first machine to start inventory tracking.'
+            }
           />
         }
       />
 
       <FAB icon="plus" onPress={openAddModal} style={styles.fab} />
 
-      <Modal visible={isAddModalVisible} transparent animationType="slide" onRequestClose={closeAddModal}>
+      <Modal visible={isAddModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={closeAddModal}>
         <View style={styles.modalBackdrop}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalSheet}>
             <Card variant="elevated" style={styles.modalCard}>
@@ -529,7 +722,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
         </View>
       </Modal>
 
-      <Modal visible={isEditModalVisible} transparent animationType="slide" onRequestClose={closeEditModal}>
+      <Modal visible={isEditModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={closeEditModal}>
         <View style={styles.modalBackdrop}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalSheet}>
             <Card variant="elevated" style={styles.modalCard}>
@@ -549,6 +742,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
         visible={isInstallPromptVisible}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setIsInstallPromptVisible(false)}
       >
         <View style={styles.modalBackdropCenter}>
@@ -607,12 +801,68 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
   },
+  searchContainer: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+  },
+  filtersPanel: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  filterLabel: {
+    color: Colors.textSecondary,
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+  },
+  filterDropdown: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    minHeight: 44,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.backgroundElevated,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  filterDropdownText: {
+    color: Colors.textPrimary,
+    fontSize: FontSizes.sm,
+    fontWeight: '500',
+  },
+  filterOptions: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    overflow: 'hidden',
+    backgroundColor: Colors.backgroundElevated,
+  },
+  filterOption: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  filterOptionText: {
+    color: Colors.textPrimary,
+    fontSize: FontSizes.sm,
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  dateInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
   errorText: {
     color: Colors.error,
     fontSize: FontSizes.sm,
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
     paddingBottom: 100,
   },
   cardContainer: {
