@@ -17,15 +17,36 @@ const isShipmentStatus = (value: any): value is ShipmentStatus => {
 
 export class ShipmentService {
   private readonly shipmentInclude = {
-    items: {
+    shipment_items: {
       include: {
-        machine: true,
+        machines: true,
       },
     },
-    fromWarehouse: true,
-    toWarehouse: true,
-    toClient: true,
+    warehouses_shipments_fromWarehouseIdTowarehouses: true,
+    warehouses_shipments_toWarehouseIdTowarehouses: true,
+    clients: true,
   } as const;
+
+  private shapeShipment(record: any) {
+    const {
+      shipment_items,
+      warehouses_shipments_fromWarehouseIdTowarehouses,
+      warehouses_shipments_toWarehouseIdTowarehouses,
+      clients,
+      ...rest
+    } = record;
+
+    return {
+      ...rest,
+      items: (shipment_items || []).map((item: any) => ({
+        ...item,
+        machine: item.machines,
+      })),
+      fromWarehouse: warehouses_shipments_fromWarehouseIdTowarehouses,
+      toWarehouse: warehouses_shipments_toWarehouseIdTowarehouses,
+      toClient: clients,
+    };
+  }
 
   private buildTrackingId(date = new Date()): string {
     const year = date.getUTCFullYear();
@@ -55,7 +76,7 @@ export class ShipmentService {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const machines = await tx.machine.findMany({
+      const machines = await tx.machines.findMany({
         where: { id: { in: uniqueMachineIds } },
         select: {
           id: true,
@@ -77,7 +98,7 @@ export class ShipmentService {
       }
 
       if (input.toWarehouseId) {
-        const destinationWarehouse = await tx.warehouse.findUnique({ where: { id: input.toWarehouseId } });
+        const destinationWarehouse = await tx.warehouses.findUnique({ where: { id: input.toWarehouseId } });
         if (!destinationWarehouse) {
           throw new Error('Destination warehouse not found');
         }
@@ -85,7 +106,7 @@ export class ShipmentService {
 
       let toClientId: string | undefined;
       if (input.toClientId) {
-        const existingClient = await tx.client.findUnique({ where: { id: input.toClientId } });
+        const existingClient = await tx.clients.findUnique({ where: { id: input.toClientId } });
         if (!existingClient) {
           throw new Error('Destination client not found');
         }
@@ -97,19 +118,19 @@ export class ShipmentService {
           throw new Error('client.name is required for client shipment');
         }
 
-        const client = await tx.client.create({
+        const client = await tx.clients.create({
           data: {
             name: input.client.name,
             contact: input.client.contact,
             address: input.client.address,
             city: input.client.city,
             country: input.client.country,
-          },
+          } as any,
         });
         toClientId = client.id;
       }
 
-      const shipment = await tx.shipment.create({
+      const shipment = await tx.shipments.create({
         data: {
           trackingId: this.buildTrackingId(),
           fromWarehouseId: input.fromWarehouseId,
@@ -120,27 +141,27 @@ export class ShipmentService {
           status: 'CREATED',
           updatedBy: updatedByUserId,
           notes: input.notes,
-        },
+        } as any,
       });
 
-      await tx.shipmentItem.createMany({
+      await tx.shipment_items.createMany({
         data: uniqueMachineIds.map((machineId) => ({
           shipmentId: shipment.id,
           machineId,
-        })),
+        })) as any,
       });
 
-      await tx.shipmentStatusHistory.create({
+      await tx.shipment_status_history.create({
         data: {
           shipmentId: shipment.id,
           fromStatus: 'CREATED',
           toStatus: 'CREATED',
           changedBy: updatedByUserId,
           comment: 'Shipment created',
-        },
+        } as any,
       });
 
-      await tx.machine.updateMany({
+      await tx.machines.updateMany({
         where: { id: { in: uniqueMachineIds } },
         data: {
           status: 'UNDER_SHIPMENT',
@@ -148,14 +169,14 @@ export class ShipmentService {
         },
       });
 
-      await tx.machineStatusHistory.createMany({
+      await tx.machine_status_history.createMany({
         data: machines.map((machine) => ({
           machineId: machine.id,
           fromStatus: machine.status,
           toStatus: 'UNDER_SHIPMENT',
           changedBy: updatedByUserId,
           comment: `Shipment created (${shipment.id})`,
-        })),
+        })) as any,
       });
 
       return { shipmentId: shipment.id };
@@ -164,7 +185,7 @@ export class ShipmentService {
       maxWait: INTERACTIVE_TX_MAX_WAIT_MS,
     });
 
-    const shipment = await prisma.shipment.findUnique({
+    const shipment = await prisma.shipments.findUnique({
       where: { id: result.shipmentId },
       include: this.shipmentInclude,
     });
@@ -184,7 +205,10 @@ export class ShipmentService {
     fromWarehouseId?: string;
     toWarehouseId?: string;
     toClientId?: string;
-  }) {
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: any[]; total: number; page: number; limit: number }> {
     const where: any = {};
 
     if (params.status) {
@@ -192,7 +216,19 @@ export class ShipmentService {
     }
 
     if (params.machineId) {
-      where.items = { some: { machineId: params.machineId } };
+      where.shipment_items = { some: { machineId: params.machineId } };
+    }
+
+    // Free-text search across tracking id, warehouses, client, and machine serials.
+    if (params.search && params.search.trim()) {
+      const q = params.search.trim();
+      where.OR = [
+        { trackingId: { contains: q, mode: 'insensitive' } },
+        { warehouses_shipments_fromWarehouseIdTowarehouses: { name: { contains: q, mode: 'insensitive' } } },
+        { warehouses_shipments_toWarehouseIdTowarehouses: { name: { contains: q, mode: 'insensitive' } } },
+        { clients: { name: { contains: q, mode: 'insensitive' } } },
+        { shipment_items: { some: { machines: { serialNumber: { contains: q, mode: 'insensitive' } } } } },
+      ];
     }
 
     if (params.fromWarehouseId) {
@@ -213,27 +249,36 @@ export class ShipmentService {
       if (params.toDate) where.shipmentDate.lte = new Date(params.toDate);
     }
 
-    return prisma.shipment.findMany({
-      where,
-      include: this.shipmentInclude,
-      orderBy: { createdAt: 'desc' },
-    });
+    const orderBy = { createdAt: 'desc' as const };
+    const limit = params.limit && params.limit > 0 ? Math.min(params.limit, 100) : undefined;
+    const page = params.page && params.page > 0 ? params.page : 1;
+
+    if (!limit) {
+      const rows = await prisma.shipments.findMany({ where, include: this.shipmentInclude, orderBy });
+      return { items: rows.map((row) => this.shapeShipment(row)), total: rows.length, page: 1, limit: rows.length };
+    }
+
+    const [rows, total] = await Promise.all([
+      prisma.shipments.findMany({ where, include: this.shipmentInclude, orderBy, skip: (page - 1) * limit, take: limit }),
+      prisma.shipments.count({ where }),
+    ]);
+    return { items: rows.map((row) => this.shapeShipment(row)), total, page, limit };
   }
 
   async getById(id: string) {
-    return prisma.shipment.findUnique({
+    return prisma.shipments.findUnique({
       where: { id },
       include: this.shipmentInclude,
-    });
+    }).then((row) => row ? this.shapeShipment(row) : null);
   }
 
   async update(id: string, input: UpdateShipmentInput, updatedByUserId: string) {
-    const existing = await prisma.shipment.findUnique({
+    const existing = await prisma.shipments.findUnique({
       where: { id },
       include: {
-        items: {
+        shipment_items: {
           include: {
-            machine: true,
+            machines: true,
           },
         },
       },
@@ -253,13 +298,13 @@ export class ShipmentService {
 
     const incomingMachineIds = input.machineIds
       ? [...new Set(input.machineIds.filter(Boolean))]
-      : existing.items.map((item) => item.machineId);
+      : existing.shipment_items.map((item) => item.machineId);
 
     if (incomingMachineIds.length === 0) {
       throw new Error('Shipment must contain at least one machine');
     }
 
-    const currentMachineIds = existing.items.map((item) => item.machineId);
+    const currentMachineIds = existing.shipment_items.map((item) => item.machineId);
     const currentMachineIdSet = new Set(currentMachineIds);
     const incomingMachineIdSet = new Set(incomingMachineIds);
 
@@ -271,7 +316,7 @@ export class ShipmentService {
     }
 
     const addedMachines = machineIdsToAdd.length
-      ? await prisma.machine.findMany({
+      ? await prisma.machines.findMany({
           where: { id: { in: machineIdsToAdd } },
           select: {
             id: true,
@@ -294,7 +339,7 @@ export class ShipmentService {
       throw new Error('Added machines must be IN_WAREHOUSE or RESERVED');
     }
 
-    const removedItems = existing.items.filter((item) => machineIdsToRemove.includes(item.machineId));
+    const removedItems = existing.shipment_items.filter((item: any) => machineIdsToRemove.includes(item.machineId));
     const nextEta =
       input.expectedDeliveryDate === undefined
         ? existing.expectedDeliveryDate
@@ -308,7 +353,7 @@ export class ShipmentService {
     const notesChanged = input.notes !== undefined && input.notes !== existing.notes;
 
     const result = await prisma.$transaction(async (tx) => {
-      await tx.shipment.update({
+      await tx.shipments.update({
         where: { id },
         data: {
           expectedDeliveryDate:
@@ -319,15 +364,15 @@ export class ShipmentService {
                 : null,
           notes: input.notes === undefined ? undefined : input.notes,
           updatedBy: updatedByUserId,
-        },
+        } as any,
       });
 
       if (machineIdsToAdd.length > 0) {
-        await tx.shipmentItem.createMany({
-          data: machineIdsToAdd.map((machineId) => ({ shipmentId: id, machineId })),
+        await tx.shipment_items.createMany({
+          data: machineIdsToAdd.map((machineId) => ({ shipmentId: id, machineId })) as any,
         });
 
-        await tx.machine.updateMany({
+        await tx.machines.updateMany({
           where: { id: { in: machineIdsToAdd } },
           data: {
             status: 'UNDER_SHIPMENT',
@@ -335,36 +380,36 @@ export class ShipmentService {
           },
         });
 
-        await tx.machineStatusHistory.createMany({
+        await tx.machine_status_history.createMany({
           data: addedMachines.map((machine) => ({
             machineId: machine.id,
             fromStatus: machine.status,
             toStatus: 'UNDER_SHIPMENT',
             changedBy: updatedByUserId,
             comment: `Shipment updated (${id}) - machine added`,
-          })),
+          })) as any,
         });
 
-        await tx.shipmentStatusHistory.createMany({
+        await tx.shipment_status_history.createMany({
           data: addedMachines.map((machine) => ({
             shipmentId: id,
             fromStatus: existing.status,
             toStatus: existing.status,
             changedBy: updatedByUserId,
             comment: `Machine ${machine.serialNumber} added`,
-          })),
+          })) as any,
         });
       }
 
       if (machineIdsToRemove.length > 0) {
-        await tx.shipmentItem.deleteMany({
+        await tx.shipment_items.deleteMany({
           where: {
             shipmentId: id,
             machineId: { in: machineIdsToRemove },
           },
         });
 
-        await tx.machine.updateMany({
+        await tx.machines.updateMany({
           where: { id: { in: machineIdsToRemove } },
           data: {
             status: 'IN_WAREHOUSE',
@@ -372,48 +417,48 @@ export class ShipmentService {
           },
         });
 
-        await tx.machineStatusHistory.createMany({
-          data: removedItems.map((item) => ({
-            machineId: item.machine.id,
-            fromStatus: item.machine.status,
+        await tx.machine_status_history.createMany({
+          data: removedItems.map((item: any) => ({
+            machineId: item.machines.id,
+            fromStatus: item.machines.status,
             toStatus: 'IN_WAREHOUSE',
             changedBy: updatedByUserId,
             comment: `Shipment updated (${id}) - machine removed`,
-          })),
+          })) as any,
         });
 
-        await tx.shipmentStatusHistory.createMany({
-          data: removedItems.map((item) => ({
+        await tx.shipment_status_history.createMany({
+          data: removedItems.map((item: any) => ({
             shipmentId: id,
             fromStatus: existing.status,
             toStatus: existing.status,
             changedBy: updatedByUserId,
-            comment: `Machine ${item.machine.serialNumber} removed`,
-          })),
+            comment: `Machine ${item.machines.serialNumber} removed`,
+          })) as any,
         });
       }
 
       if (etaChanged) {
-        await tx.shipmentStatusHistory.create({
+        await tx.shipment_status_history.create({
           data: {
             shipmentId: id,
             fromStatus: existing.status,
             toStatus: existing.status,
             changedBy: updatedByUserId,
             comment: `ETA updated to ${this.formatDateForLog(nextEta)}`,
-          },
+          } as any,
         });
       }
 
       if (notesChanged) {
-        await tx.shipmentStatusHistory.create({
+        await tx.shipment_status_history.create({
           data: {
             shipmentId: id,
             fromStatus: existing.status,
             toStatus: existing.status,
             changedBy: updatedByUserId,
             comment: 'Notes updated',
-          },
+          } as any,
         });
       }
 
@@ -423,7 +468,7 @@ export class ShipmentService {
       maxWait: INTERACTIVE_TX_MAX_WAIT_MS,
     });
 
-    const updated = await prisma.shipment.findUnique({
+    const updated = await prisma.shipments.findUnique({
       where: { id: result.shipmentId },
       include: this.shipmentInclude,
     });
@@ -432,7 +477,7 @@ export class ShipmentService {
       throw new Error('Shipment not found');
     }
 
-    return updated;
+    return this.shapeShipment(updated);
   }
 
   async setStatus(id: string, status: ShipmentStatus, updatedByUserId: string, comment?: string) {
@@ -444,7 +489,7 @@ export class ShipmentService {
       return this.cancel(id, updatedByUserId, comment);
     }
 
-    const existing = await prisma.shipment.findUnique({ where: { id } });
+    const existing = await prisma.shipments.findUnique({ where: { id } });
     if (!existing) {
       throw new Error('Shipment not found');
     }
@@ -463,33 +508,33 @@ export class ShipmentService {
       throw new Error('Only CREATED shipments can be dispatched to IN_TRANSIT');
     }
 
-    const updated = await prisma.shipment.update({
+    const updated = await prisma.shipments.update({
       where: { id },
       data: {
         status: nextStatus,
         updatedBy: updatedByUserId,
-      },
+      } as any,
       include: this.shipmentInclude,
     });
 
-    await prisma.shipmentStatusHistory.create({
+    await prisma.shipment_status_history.create({
       data: {
         shipmentId: id,
         fromStatus: existing.status,
         toStatus: nextStatus,
         changedBy: updatedByUserId,
         comment: comment || 'Shipment dispatched',
-      },
+      } as any,
     });
 
-    return updated;
+    return this.shapeShipment(updated);
   }
 
   async deliver(id: string, input: DeliverShipmentInput, updatedByUserId: string) {
     const result = await prisma.$transaction(async (tx) => {
-      const existing = await tx.shipment.findUnique({
+      const existing = await tx.shipments.findUnique({
         where: { id },
-        include: { items: true },
+        include: { shipment_items: { include: { machines: true } } },
       });
 
       if (!existing) {
@@ -500,12 +545,12 @@ export class ShipmentService {
         throw new Error('Only IN_TRANSIT shipments can be delivered');
       }
 
-      const machineIds = existing.items.map((item) => item.machineId);
+      const machineIds = existing.shipment_items.map((item) => item.machineId);
       if (machineIds.length === 0) {
         throw new Error('Shipment has no machines');
       }
 
-      const machines = await tx.machine.findMany({ where: { id: { in: machineIds } } });
+      const machines = await tx.machines.findMany({ where: { id: { in: machineIds } } });
       if (machines.length !== machineIds.length) {
         throw new Error('One or more shipment machines were not found');
       }
@@ -518,7 +563,7 @@ export class ShipmentService {
       const newMachineStatus = isToWarehouse ? 'IN_WAREHOUSE' : 'DELIVERED';
 
       if (isToWarehouse) {
-        await tx.machine.updateMany({
+        await tx.machines.updateMany({
           where: { id: { in: machineIds } },
           data: {
             status: 'IN_WAREHOUSE',
@@ -528,7 +573,7 @@ export class ShipmentService {
           },
         });
       } else {
-        await tx.machine.updateMany({
+        await tx.machines.updateMany({
           where: { id: { in: machineIds } },
           data: {
             status: 'DELIVERED',
@@ -537,34 +582,34 @@ export class ShipmentService {
         });
       }
 
-      await tx.shipment.update({
+      await tx.shipments.update({
         where: { id },
         data: {
           status: 'DELIVERED',
           deliveryConfirmation: input.deliveryConfirmation,
           notes: input.notes === undefined ? undefined : input.notes,
           updatedBy: updatedByUserId,
-        },
+        } as any,
       });
 
-      await tx.shipmentStatusHistory.create({
+      await tx.shipment_status_history.create({
         data: {
           shipmentId: id,
           fromStatus: existing.status,
           toStatus: 'DELIVERED',
           changedBy: updatedByUserId,
           comment: input.notes || 'Shipment delivered',
-        },
+        } as any,
       });
 
-      await tx.machineStatusHistory.createMany({
+      await tx.machine_status_history.createMany({
         data: machines.map((machine) => ({
           machineId: machine.id,
           fromStatus: machine.status,
           toStatus: newMachineStatus,
           changedBy: updatedByUserId,
           comment: `Shipment delivered (${id})`,
-        })),
+        })) as any,
       });
 
       return { shipmentId: id };
@@ -573,7 +618,7 @@ export class ShipmentService {
       maxWait: INTERACTIVE_TX_MAX_WAIT_MS,
     });
 
-    const shipment = await prisma.shipment.findUnique({
+    const shipment = await prisma.shipments.findUnique({
       where: { id: result.shipmentId },
       include: this.shipmentInclude,
     });
@@ -582,14 +627,14 @@ export class ShipmentService {
       throw new Error('Shipment not found');
     }
 
-    return shipment;
+    return this.shapeShipment(shipment);
   }
 
   async cancel(id: string, updatedByUserId: string, comment?: string) {
     const result = await prisma.$transaction(async (tx) => {
-      const existing = await tx.shipment.findUnique({
+      const existing = await tx.shipments.findUnique({
         where: { id },
-        include: { items: true },
+        include: { shipment_items: { include: { machines: true } } },
       });
 
       if (!existing) {
@@ -604,8 +649,8 @@ export class ShipmentService {
         throw new Error('Shipment is already cancelled');
       }
 
-      const machineIds = existing.items.map((item) => item.machineId);
-      const machines = await tx.machine.findMany({
+      const machineIds = existing.shipment_items.map((item) => item.machineId);
+      const machines = await tx.machines.findMany({
         where: { id: { in: machineIds } },
         select: {
           id: true,
@@ -613,7 +658,7 @@ export class ShipmentService {
         },
       });
 
-      await tx.machine.updateMany({
+      await tx.machines.updateMany({
         where: { id: { in: machineIds } },
         data: {
           status: 'IN_WAREHOUSE',
@@ -623,33 +668,33 @@ export class ShipmentService {
         },
       });
 
-      await tx.shipment.update({
+      await tx.shipments.update({
         where: { id },
         data: {
           status: 'CANCELLED',
           updatedBy: updatedByUserId,
-        },
+        } as any,
       });
 
-      await tx.shipmentStatusHistory.create({
+      await tx.shipment_status_history.create({
         data: {
           shipmentId: id,
           fromStatus: existing.status,
           toStatus: 'CANCELLED',
           changedBy: updatedByUserId,
           comment: comment || 'Shipment cancelled',
-        },
+        } as any,
       });
 
       if (machines.length > 0) {
-        await tx.machineStatusHistory.createMany({
+        await tx.machine_status_history.createMany({
           data: machines.map((machine) => ({
             machineId: machine.id,
             fromStatus: machine.status,
             toStatus: 'IN_WAREHOUSE',
             changedBy: updatedByUserId,
             comment: `Shipment cancelled (${id})`,
-          })),
+          })) as any,
         });
       }
 
@@ -659,7 +704,7 @@ export class ShipmentService {
       maxWait: INTERACTIVE_TX_MAX_WAIT_MS,
     });
 
-    const shipment = await prisma.shipment.findUnique({
+    const shipment = await prisma.shipments.findUnique({
       where: { id: result.shipmentId },
       include: this.shipmentInclude,
     });
@@ -668,18 +713,18 @@ export class ShipmentService {
       throw new Error('Shipment not found');
     }
 
-    return shipment;
+    return this.shapeShipment(shipment);
   }
 
   async history(shipmentId: string) {
-    const rows = await prisma.shipmentStatusHistory.findMany({
+    const rows = await prisma.shipment_status_history.findMany({
       where: { shipmentId },
       orderBy: { createdAt: 'desc' },
     });
 
     const userIds = [...new Set(rows.map((row) => row.changedBy).filter(Boolean))];
     const users = userIds.length
-      ? await prisma.user.findMany({
+      ? await prisma.users.findMany({
           where: { id: { in: userIds } },
           select: {
             id: true,

@@ -44,15 +44,18 @@ export type RootStackParamList = {
   Signup: undefined;
   Main: undefined;
   MachineDetail: { id?: string } | undefined;
+  TrainingDetail: { id: string };
   AddMachine: undefined;
+  UserManagement: undefined;
 };
 
 export type MainTabParamList = {
   Dashboard: undefined;
   Machines: undefined;
   Shipments: undefined;
+  Training: undefined;
   Map: undefined;
-  Settings: undefined;
+  Warehouses: undefined;
 };
 
 // Domain/UI types (used by screens)

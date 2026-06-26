@@ -1,5 +1,6 @@
 import { CreateInstallationInput, UpdateInstallationInput } from './installation.types';
 export declare class InstallationService {
+    private resolveCoordinates;
     create(input: CreateInstallationInput, installedByUserId: string): Promise<{
         client: {
             id: string;
@@ -82,6 +83,58 @@ export declare class InstallationService {
         siteAddress: string | null;
         siteNotes: string | null;
     })[]>;
+    listForMap(params: {
+        status?: string;
+        clientId?: string;
+        fromDate?: string;
+        toDate?: string;
+    }): Promise<{
+        id: string;
+        client: {
+            id: string;
+            name: string;
+            address: string | null;
+            city: string | null;
+        } | null;
+        machine: {
+            id: string;
+            model: string;
+            category: string;
+            serialNumber: string;
+        };
+        status: import(".prisma/client").$Enums.InstallationStatus;
+        latitude: number | null;
+        longitude: number | null;
+        installedAt: Date;
+        siteAddress: string | null;
+        siteNotes: string | null;
+    }[]>;
+    listUnmapped(params: {
+        status?: string;
+        clientId?: string;
+        fromDate?: string;
+        toDate?: string;
+    }): Promise<{
+        id: string;
+        client: {
+            id: string;
+            name: string;
+            address: string | null;
+            city: string | null;
+        } | null;
+        machine: {
+            id: string;
+            model: string;
+            category: string;
+            serialNumber: string;
+        };
+        status: import(".prisma/client").$Enums.InstallationStatus;
+        latitude: number | null;
+        longitude: number | null;
+        installedAt: Date;
+        siteAddress: string | null;
+        siteNotes: string | null;
+    }[]>;
     getById(id: string): Promise<({
         client: {
             id: string;

@@ -1,6 +1,5 @@
 import { MachineStatus, CreateMachineInput, UpdateMachineInput } from './machine.types';
 export declare class MachineService {
-    private geocodeAddress;
     create(input: CreateMachineInput, changedByUserId: string): Promise<{
         id: string;
         model: string;

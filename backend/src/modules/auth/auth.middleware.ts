@@ -24,9 +24,9 @@ export const authMiddleware = async (
     const decoded = verifyToken(token);
 
     // Get user from database
-    const user = await prisma.user.findUnique({
+    const user = await prisma.users.findUnique({
       where: { id: decoded.userId },
-      include: { warehouse: true }
+      include: { warehouses: true }
     });
 
     if (!user) {

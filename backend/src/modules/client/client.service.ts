@@ -7,7 +7,7 @@ export class ClientService {
       throw new Error('name is required');
     }
 
-    return prisma.client.create({
+    return prisma.clients.create({
       data: {
         name: input.name,
         contact: input.contact,
@@ -37,14 +37,14 @@ export class ClientService {
       where.city = { contains: params.city, mode: 'insensitive' };
     }
 
-    return prisma.client.findMany({
+    return prisma.clients.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async getById(id: string) {
-    return prisma.client.findUnique({
+    return prisma.clients.findUnique({
       where: { id },
       include: {
         machines: true,
@@ -54,12 +54,12 @@ export class ClientService {
   }
 
   async update(id: string, input: UpdateClientInput) {
-    const existing = await prisma.client.findUnique({ where: { id } });
+    const existing = await prisma.clients.findUnique({ where: { id } });
     if (!existing) {
       throw new Error('Client not found');
     }
 
-    return prisma.client.update({
+    return prisma.clients.update({
       where: { id },
       data: {
         name: input.name === undefined ? undefined : input.name,
@@ -72,22 +72,22 @@ export class ClientService {
   }
 
   async remove(id: string) {
-    const existing = await prisma.client.findUnique({ where: { id } });
+    const existing = await prisma.clients.findUnique({ where: { id } });
     if (!existing) {
       throw new Error('Client not found');
     }
 
     // Optional: prevent deletion if client has machines or shipments
     const [machinesCount, shipmentsCount] = await Promise.all([
-      prisma.machine.count({ where: { clientId: id } }),
-      prisma.shipment.count({ where: { toClientId: id } }),
+      prisma.machines.count({ where: { clientId: id } }),
+      prisma.shipments.count({ where: { toClientId: id } }),
     ]);
 
     if (machinesCount > 0 || shipmentsCount > 0) {
       throw new Error('Cannot delete client with associated machines or shipments');
     }
 
-    return prisma.client.delete({
+    return prisma.clients.delete({
       where: { id },
     });
   }

@@ -73,14 +73,44 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
+export interface ShipmentListParams {
+  status?: string;
+  machineId?: string;
+  search?: string;
+  fromDate?: string;
+  toDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedShipments {
+  items: BackendShipment[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+interface PaginatedResponse<T> extends BackendResponse<T[]> {
+  pagination?: { total: number; page: number; limit: number; hasMore: boolean };
+}
+
 export const shipmentService = {
-  async list(params?: { status?: string; machineId?: string }): Promise<BackendShipment[]> {
+  async list(params?: ShipmentListParams): Promise<PaginatedShipments> {
     try {
-      const response = await api.get<BackendResponse<BackendShipment[]>>('/shipments', { params });
+      const response = await api.get<PaginatedResponse<BackendShipment>>('/shipments', { params });
       if (!response.data?.success || !response.data?.data) {
         throw new Error(response.data?.message || 'Failed to fetch shipments');
       }
-      return response.data.data;
+      const items = response.data.data;
+      const pg = response.data.pagination;
+      return {
+        items,
+        total: pg?.total ?? items.length,
+        page: pg?.page ?? 1,
+        limit: pg?.limit ?? items.length,
+        hasMore: pg?.hasMore ?? false,
+      };
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to fetch shipments'));
     }

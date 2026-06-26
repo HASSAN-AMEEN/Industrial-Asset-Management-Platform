@@ -3,36 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MachineService = void 0;
 const database_1 = require("../../config/database");
 const machine_types_1 = require("./machine.types");
+const geo_1 = require("../../utils/geo");
 const isMachineStatus = (value) => {
     return machine_types_1.MACHINE_STATUSES.includes(value);
 };
 class MachineService {
-    async geocodeAddress(siteAddress) {
-        try {
-            const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(siteAddress)}`, {
-                headers: {
-                    'User-Agent': 'TayyabTraders/1.0',
-                },
-            });
-            if (!response.ok) {
-                return {};
-            }
-            const payload = (await response.json());
-            const first = payload?.[0];
-            if (!first?.lat || !first?.lon) {
-                return {};
-            }
-            const latitude = Number(first.lat);
-            const longitude = Number(first.lon);
-            if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-                return {};
-            }
-            return { latitude, longitude };
-        }
-        catch {
-            return {};
-        }
-    }
     async create(input, changedByUserId) {
         const machine = await database_1.prisma.machine.create({
             data: {
@@ -170,9 +145,19 @@ class MachineService {
             if (!installationInput?.siteAddress) {
                 throw new Error('siteAddress is required when setting status to INSTALLED');
             }
-            const coordinates = installationInput.latitude !== undefined && installationInput.longitude !== undefined
-                ? { latitude: installationInput.latitude, longitude: installationInput.longitude }
-                : await this.geocodeAddress(installationInput.siteAddress);
+            const hasLatitude = installationInput.latitude !== undefined;
+            const hasLongitude = installationInput.longitude !== undefined;
+            if (hasLatitude !== hasLongitude) {
+                throw new Error('Both latitude and longitude are required when one is provided');
+            }
+            const coordinates = hasLatitude && hasLongitude
+                ? (0, geo_1.normalizeCoordinatePair)(installationInput.latitude, installationInput.longitude)
+                : await (0, geo_1.geocodeAddress)(installationInput.siteAddress);
+            if (hasLatitude && hasLongitude && !coordinates) {
+                throw new Error('Invalid coordinate values. Latitude must be between -90 and 90, longitude between -180 and 180');
+            }
+            const latitude = coordinates?.latitude;
+            const longitude = coordinates?.longitude;
             const { machine } = await database_1.prisma.$transaction(async (tx) => {
                 const installation = await tx.installation.create({
                     data: {
@@ -180,8 +165,8 @@ class MachineService {
                         clientId: existing.clientId,
                         installedAt: installationInput.installedAt ? new Date(installationInput.installedAt) : new Date(),
                         installedBy: changedByUserId,
-                        latitude: coordinates.latitude,
-                        longitude: coordinates.longitude,
+                        latitude,
+                        longitude,
                         siteAddress: installationInput.siteAddress,
                         siteNotes: installationInput.siteNotes,
                         status: 'ACTIVE',

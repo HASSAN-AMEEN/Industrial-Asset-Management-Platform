@@ -14,6 +14,7 @@ export interface CreateInstallationInput {
   longitude?: number;
   siteAddress?: string;
   siteNotes?: string;
+  locationUrl?: string;
 }
 
 export interface UpdateInstallationInput {
@@ -23,4 +24,5 @@ export interface UpdateInstallationInput {
   siteAddress?: string | null;
   siteNotes?: string | null;
   status?: InstallationStatus;
+  locationUrl?: string;
 }

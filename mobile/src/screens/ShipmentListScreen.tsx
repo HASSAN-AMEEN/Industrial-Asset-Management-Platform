@@ -16,8 +16,9 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
-import { Header, SearchBar, ShipmentCard, FAB, EmptyState, Input, Button } from '../components';
+import { Header, SearchBar, ShipmentCard, FAB, EmptyState, Input, Button, Card } from '../components';
 import { useAuth } from '../store/AuthContext';
+import { useDrawer } from '../store/DrawerContext';
 import shipmentService, {
   BackendShipment,
   CreateShipmentInput,
@@ -54,6 +55,8 @@ type ShipmentFormState = {
   notes: string;
   machineIds: string[];
 };
+
+const PAGE_SIZE = 20;
 
 const createEmptyForm = (): ShipmentFormState => ({
   fromWarehouseId: '',
@@ -93,6 +96,7 @@ const formatDateTime = (value?: string | Date | null): string => {
 const isSelectableMachineStatus = (status: string): boolean =>
   status === 'IN_WAREHOUSE' || status === 'RESERVED';
 
+
 interface ShipmentListScreenProps {
   onBackPress?: () => void;
 }
@@ -100,6 +104,9 @@ interface ShipmentListScreenProps {
 export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPress }) => {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const { open: openDrawer } = useDrawer();
+  // SRD §2: only Super Admin & Warehouse Manager create/modify shipments.
+  const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'WAREHOUSE_MANAGER';
 
   const [shipments, setShipments] = React.useState<BackendShipment[]>([]);
   const [warehouses, setWarehouses] = React.useState<Warehouse[]>([]);
@@ -108,6 +115,10 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
 
   const [isLoading, setIsLoading] = React.useState(true);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [page, setPage] = React.useState(1);
+  const [hasMore, setHasMore] = React.useState(false);
+  const [total, setTotal] = React.useState(0);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isLoadingMachines, setIsLoadingMachines] = React.useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = React.useState(false);
@@ -115,6 +126,9 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
   const [search, setSearch] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<TabType>('all');
   const [expandedIds, setExpandedIds] = React.useState<Record<string, boolean>>({});
+  const [showDateFilter, setShowDateFilter] = React.useState(false);
+  const [fromDateFilter, setFromDateFilter] = React.useState('');
+  const [toDateFilter, setToDateFilter] = React.useState('');
 
   const [isFormOpen, setIsFormOpen] = React.useState(false);
   const [formMode, setFormMode] = React.useState<ModalMode>('create');
@@ -125,27 +139,80 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
   const [detailShipment, setDetailShipment] = React.useState<BackendShipment | null>(null);
   const [history, setHistory] = React.useState<ShipmentHistoryEntry[]>([]);
 
-  const loadData = React.useCallback(async () => {
+  const buildListParams = React.useCallback(
+    (pageNum: number) => ({
+      status: activeTab === 'all' ? undefined : activeTab,
+      search: search.trim() || undefined,
+      fromDate: fromDateFilter.trim() || undefined,
+      toDate: toDateFilter.trim() || undefined,
+      page: pageNum,
+      limit: PAGE_SIZE,
+    }),
+    [activeTab, search, fromDateFilter, toDateFilter]
+  );
+
+  // Warehouses + clients are needed by the create/edit form; load them once.
+  const loadAux = React.useCallback(async () => {
     try {
-      const [shipmentData, warehouseData, clientData] = await Promise.all([
-        shipmentService.list(),
-        warehouseService.list(),
-        clientService.list(),
-      ]);
-      setShipments(shipmentData);
+      const [warehouseData, clientData] = await Promise.all([warehouseService.list(), clientService.list()]);
       setWarehouses(warehouseData);
       setClients(clientData);
+    } catch {
+      // Non-fatal for the shipment list.
+    }
+  }, []);
+
+  // Server-driven: page 1 with the current tab/search/date filters.
+  const fetchShipments = React.useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await shipmentService.list(buildListParams(1));
+      setShipments(res.items);
+      setPage(res.page);
+      setHasMore(res.hasMore);
+      setTotal(res.total);
     } catch (error) {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to load shipments');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [buildListParams]);
 
+  const loadData = React.useCallback(async () => {
+    await Promise.all([loadAux(), fetchShipments()]);
+  }, [loadAux, fetchShipments]);
+
+  const loadMore = React.useCallback(async () => {
+    if (!hasMore || isLoadingMore || isLoading) return;
+    try {
+      setIsLoadingMore(true);
+      const res = await shipmentService.list(buildListParams(page + 1));
+      setShipments((prev) => [...prev, ...res.items]);
+      setPage(res.page);
+      setHasMore(res.hasMore);
+      setTotal(res.total);
+    } catch {
+      // keep what we have
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [buildListParams, hasMore, isLoadingMore, isLoading, page]);
+
+  // Load aux data once.
   React.useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadAux();
+  }, [loadAux]);
+
+  // Refetch page 1 (debounced) whenever the tab / search / date filter changes.
+  const filterKey = [activeTab, search.trim(), fromDateFilter.trim(), toDateFilter.trim()].join('|');
+  React.useEffect(() => {
+    const timeout = setTimeout(() => {
+      fetchShipments();
+    }, 300);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   React.useEffect(() => {
     if (!isFormOpen || !form.fromWarehouseId) {
@@ -156,8 +223,8 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
     setIsLoadingMachines(true);
     machineService
       .list({ warehouseId: form.fromWarehouseId })
-      .then((machines) => {
-        setSourceMachines(machines.filter((machine) => isSelectableMachineStatus(machine.status)));
+      .then((res) => {
+        setSourceMachines(res.items.filter((machine) => isSelectableMachineStatus(machine.status)));
       })
       .catch(() => setSourceMachines([]))
       .finally(() => setIsLoadingMachines(false));
@@ -344,23 +411,6 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
     );
   };
 
-  const filteredShipments = shipments.filter((shipment) => {
-    const statusMatches = activeTab === 'all' || shipment.status === activeTab;
-
-    const q = search.toLowerCase();
-    const destination = shipment.toWarehouse
-      ? `${shipment.toWarehouse.name} ${shipment.toWarehouse.city}`
-      : shipment.toClient
-        ? `${shipment.toClient.name} ${shipment.toClient.city || ''}`
-        : '';
-    const matchesSearch =
-      (shipment.trackingId || shipment.id).toLowerCase().includes(q) ||
-      shipment.fromWarehouse?.name.toLowerCase().includes(q) ||
-      destination.toLowerCase().includes(q);
-
-    return statusMatches && matchesSearch;
-  });
-
   const statusEvent = (targetStatus: string): ShipmentHistoryEntry | null => {
     return history.find((item) => item.toStatus === targetStatus) || null;
   };
@@ -372,7 +422,7 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <Header title="Shipments" showBack onBackPress={onBackPress} />
+        <Header title="Shipments" showMenu onMenuPress={openDrawer} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={Colors.primary} />
         </View>
@@ -384,33 +434,79 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Header title="Shipments" subtitle={`${shipments.length} total shipments`} showBack onBackPress={onBackPress} />
+      <Header title="Shipments" subtitle={`${total} total shipments`} showMenu onMenuPress={openDrawer} />
 
       <View style={styles.searchContainer}>
-        <SearchBar value={search} onChangeText={setSearch} placeholder="Search shipments" showFilter={false} />
+        <SearchBar
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search shipments"
+          onFilterPress={() => setShowDateFilter((prev) => !prev)}
+          showFilter
+        />
       </View>
+
+      {showDateFilter && (
+        <Card variant="elevated" style={styles.dateFilterCard}>
+          <Text style={styles.filterTitle}>Shipment Date Range</Text>
+          <View style={styles.dateRangeRow}>
+            <Input
+              label="From"
+              placeholder="YYYY-MM-DD"
+              value={fromDateFilter}
+              onChangeText={setFromDateFilter}
+              containerStyle={styles.dateInput}
+            />
+            <Input
+              label="To"
+              placeholder="YYYY-MM-DD"
+              value={toDateFilter}
+              onChangeText={setToDateFilter}
+              containerStyle={styles.dateInput}
+            />
+          </View>
+          <Button
+            title="Clear Date Filter"
+            variant="outline"
+            onPress={() => {
+              setFromDateFilter('');
+              setToDateFilter('');
+            }}
+          />
+        </Card>
+      )}
 
       <View style={styles.tabsContainer}>
         {tabs.map((tab) => {
-          const count = tab.key === 'all' ? shipments.length : shipments.filter((s) => s.status === tab.key).length;
+          const isActive = activeTab === tab.key;
           return (
             <Pressable
               key={tab.key}
               onPress={() => setActiveTab(tab.key)}
-              style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+              style={[styles.tab, isActive && styles.tabActive]}
             >
-              <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-              <Text style={[styles.tabCount, activeTab === tab.key && styles.tabTextActive]}>{count}</Text>
+              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>{tab.label}</Text>
+              {/* The active tab shows the server-side total for the current filter. */}
+              {isActive && <Text style={[styles.tabCount, styles.tabTextActive]}>{total}</Text>}
             </Pressable>
           );
         })}
       </View>
 
       <FlatList
-        data={filteredShipments}
+        data={shipments}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} />}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View style={styles.listFooter}>
+              <ActivityIndicator size="small" color={Colors.secondary} />
+            </View>
+          ) : null
+        }
         renderItem={({ item }) => (
           <ShipmentCard
             shipment={item}
@@ -421,12 +517,13 @@ export const ShipmentListScreen: React.FC<ShipmentListScreenProps> = ({ onBackPr
             onDeliver={() => deliverShipment(item)}
             onEdit={() => openEdit(item)}
             onCancel={() => cancelShipment(item)}
+            canManage={canManage}
           />
         )}
         ListEmptyComponent={<EmptyState icon="truck-remove" title="No shipments found" description="Create one to get started" />}
       />
 
-      <FAB icon="plus" onPress={openCreate} style={styles.fab} backgroundColor={Colors.secondary} />
+      {canManage && <FAB icon="plus" onPress={openCreate} style={styles.fab} backgroundColor={Colors.secondary} />}
 
       <Modal
         visible={isFormOpen}
@@ -695,6 +792,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.md,
   },
+  dateFilterCard: {
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  filterTitle: {
+    color: Colors.textPrimary,
+    fontSize: FontSizes.md,
+    fontWeight: '700',
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  dateInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
   tab: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -723,6 +838,10 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: 100,
+  },
+  listFooter: {
+    paddingVertical: Spacing.lg,
+    alignItems: 'center',
   },
   fab: {
     position: 'absolute',

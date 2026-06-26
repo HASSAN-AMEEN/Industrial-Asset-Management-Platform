@@ -13,7 +13,7 @@ export const registerGuard = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const userCount = await prisma.user.count();
+    const userCount = await prisma.users.count();
 
     if (userCount === 0) {
       next();

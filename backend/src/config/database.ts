@@ -10,8 +10,14 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
+// Prisma log levels:
+// - default: errors only (no query spam in dev logs)
+// - set PRISMA_DEBUG=1 in env to opt into full query + warn logging when debugging
+const prismaLogLevels: ('query' | 'error' | 'warn')[] =
+  process.env.PRISMA_DEBUG === '1' ? ['query', 'error', 'warn'] : ['error'];
+
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  log: prismaLogLevels,
 });
 
 if (process.env.NODE_ENV !== 'production') {

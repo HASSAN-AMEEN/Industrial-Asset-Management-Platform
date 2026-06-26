@@ -6,34 +6,39 @@ import {
   ScrollView,
   Pressable,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
-import { Card, StatCard, ActivityItem, Button } from '../components';
+import { ActivityItem, Card, ErrorState, Skeleton } from '../components';
+import { parseApiError, ParsedApiError } from '../utils/errors';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useResponsive } from '../hooks/useResponsive';
 import { Activity } from '../types';
 import { useAuth } from '../store/AuthContext';
+import { useDrawer } from '../store/DrawerContext';
 import dashboardService, { DashboardPayload } from '../services/dashboard';
 import notificationsService from '../services/notifications';
 
-const FLEET_COLOR_MAP: Record<'Active' | 'Transit' | 'Maintenance', string> = {
-  Active: Colors.success,
-  Transit: Colors.secondary,
-  Maintenance: Colors.warning,
+// Visual config for each machine status (label, colour, icon).
+const STATUS_META: Record<string, { label: string; color: string; icon: string }> = {
+  IN_WAREHOUSE: { label: 'In Warehouse', color: Colors.info, icon: 'warehouse' },
+  RESERVED: { label: 'Reserved', color: Colors.accent, icon: 'bookmark-outline' },
+  UNDER_SHIPMENT: { label: 'Under Shipment', color: Colors.secondary, icon: 'truck-outline' },
+  DELIVERED: { label: 'Delivered', color: Colors.primaryLight, icon: 'package-variant-closed' },
+  INSTALLED: { label: 'Installed', color: Colors.success, icon: 'check-decagram' },
+  UNDER_MAINTENANCE: { label: 'Maintenance', color: Colors.warning, icon: 'wrench-outline' },
+  RETURNED: { label: 'Returned', color: Colors.error, icon: 'undo-variant' },
 };
 
 const formatRelativeTime = (isoDate: string): string => {
   const timestamp = new Date(isoDate).getTime();
-  if (Number.isNaN(timestamp)) {
-    return 'just now';
-  }
-
+  if (Number.isNaN(timestamp)) return 'just now';
   const diffMs = Date.now() - timestamp;
   const minute = 60 * 1000;
   const hour = 60 * minute;
   const day = 24 * hour;
-
   if (diffMs < minute) return 'just now';
   if (diffMs < hour) return `${Math.floor(diffMs / minute)}m ago`;
   if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
@@ -48,16 +53,10 @@ const getGreeting = (): string => {
 };
 
 const toDisplayName = (email?: string): string => {
-  if (!email) {
-    return 'Operator';
-  }
-
+  if (!email) return 'Operator';
   const localPart = email.split('@')[0] || '';
   const cleaned = localPart.replace(/[._-]+/g, ' ').trim();
-  if (!cleaned) {
-    return 'Operator';
-  }
-
+  if (!cleaned) return 'Operator';
   return cleaned
     .split(' ')
     .filter(Boolean)
@@ -65,22 +64,65 @@ const toDisplayName = (email?: string): string => {
     .join(' ');
 };
 
-interface DashboardScreenProps {
-  onNavigate?: (screen: string) => void;
-}
+/** Animated count-up number — eases from 0 to the target whenever it changes. */
+const CountUp: React.FC<{ value: number; style?: any }> = ({ value, style }) => {
+  const [display, setDisplay] = React.useState(0);
 
-export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) => {
+  React.useEffect(() => {
+    let raf: number;
+    const duration = 800;
+    const start = Date.now();
+    const from = 0;
+    const tick = () => {
+      const t = Math.min((Date.now() - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(from + (value - from) * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+
+  return <Text style={style}>{display}</Text>;
+};
+
+/** Horizontal bar whose fill width animates in. */
+const AnimatedBar: React.FC<{ percentage: number; color: string }> = ({ percentage, color }) => {
+  const widthAnim = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    Animated.timing(widthAnim, {
+      toValue: Math.max(0, Math.min(percentage, 100)),
+      duration: 700,
+      useNativeDriver: false,
+    }).start();
+  }, [percentage, widthAnim]);
+
+  const width = widthAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
+
+  return (
+    <View style={styles.barTrack}>
+      <Animated.View style={[styles.barFill, { width, backgroundColor: color }]} />
+    </View>
+  );
+};
+
+export const DashboardScreen: React.FC = () => {
+  const navigation = useNavigation<any>();
   const [refreshing, setRefreshing] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [loadError, setLoadError] = React.useState<ParsedApiError | null>(null);
   const [dashboardData, setDashboardData] = React.useState<DashboardPayload | null>(null);
   const [notificationCount, setNotificationCount] = React.useState(0);
   const { wp } = useResponsive();
-  const { logout, user } = useAuth();
+  const { user } = useAuth();
+  const { open: openDrawer } = useDrawer();
+
+  const contentAnim = React.useRef(new Animated.Value(0)).current;
 
   const fetchDashboardData = React.useCallback(async () => {
     try {
-      setErrorMessage(null);
+      setLoadError(null);
       const [dashboardResult, notificationsResult] = await Promise.allSettled([
         dashboardService.getDashboard(),
         notificationsService.getUnreadCount(),
@@ -89,19 +131,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       if (dashboardResult.status === 'fulfilled') {
         setDashboardData(dashboardResult.value);
       } else {
-        const message =
-          dashboardResult.reason instanceof Error
-            ? dashboardResult.reason.message
-            : 'Failed to load dashboard';
-        setErrorMessage(message);
+        setLoadError(parseApiError(dashboardResult.reason));
       }
 
       if (notificationsResult.status === 'fulfilled') {
         setNotificationCount(notificationsResult.value.unreadCount);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load dashboard';
-      setErrorMessage(message);
+      setLoadError(parseApiError(error));
     } finally {
       setIsLoading(false);
     }
@@ -111,22 +148,30 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  const stats = React.useMemo(() => {
-    const machineStats = dashboardData?.machineStats;
+  // Fade + lift the content in once the first load resolves.
+  React.useEffect(() => {
+    if (!isLoading && dashboardData) {
+      Animated.timing(contentAnim, { toValue: 1, duration: 450, useNativeDriver: true }).start();
+    }
+  }, [contentAnim, dashboardData, isLoading]);
+
+  const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'WAREHOUSE_MANAGER';
+  const canSeeMachines = user?.role !== 'TECHNICIAN';
+  const canSeeShipments = user?.role !== 'TECHNICIAN';
+
+  const statCards = React.useMemo(() => {
+    const m = dashboardData?.machineStats;
     return [
-      { title: 'Total Machines', value: machineStats?.total ?? 0, icon: 'cog', color: Colors.primary },
-      { title: 'Active', value: machineStats?.active ?? 0, icon: 'check-circle', color: Colors.success },
-      { title: 'In Transit', value: machineStats?.inTransit ?? 0, icon: 'truck', color: Colors.secondary },
-      { title: 'Maintenance', value: machineStats?.maintenance ?? 0, icon: 'wrench', color: Colors.warning },
+      { title: 'Total Machines', value: m?.total ?? 0, icon: 'cog', color: Colors.primary },
+      { title: 'Installations', value: dashboardData?.installationsCount ?? 0, icon: 'map-marker-check', color: Colors.success },
+      { title: 'In Transit', value: dashboardData?.shipmentsInTransit ?? 0, icon: 'truck-fast', color: Colors.secondary },
+      { title: 'Maintenance', value: m?.maintenance ?? 0, icon: 'wrench', color: Colors.warning },
     ];
   }, [dashboardData]);
 
-  const fleetStatus = React.useMemo(() => {
-    return (dashboardData?.fleetStatus ?? []).map((item) => ({
-      ...item,
-      color: FLEET_COLOR_MAP[item.label],
-    }));
-  }, [dashboardData]);
+  const statusBreakdown = dashboardData?.statusBreakdown ?? [];
+  const warehouses = dashboardData?.machinesPerWarehouse ?? [];
+  const maxWarehouseCount = warehouses.reduce((max, w) => Math.max(max, w.count), 0) || 1;
 
   const recentActivity: Activity[] = React.useMemo(() => {
     return (dashboardData?.recentActivity ?? []).map((item) => ({
@@ -148,6 +193,23 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     setRefreshing(false);
   };
 
+  const quickActions = React.useMemo(() => {
+    const actions: { label: string; icon: string; color: string; onPress: () => void }[] = [];
+    if (canManage) {
+      actions.push({ label: 'Add Machine', icon: 'plus', color: Colors.primary, onPress: () => navigation.navigate('AddMachine') });
+    } else if (canSeeMachines) {
+      actions.push({ label: 'Machines', icon: 'cog', color: Colors.primary, onPress: () => navigation.navigate('Machines') });
+    }
+    if (canSeeShipments) {
+      actions.push({ label: 'Shipments', icon: 'truck', color: Colors.secondary, onPress: () => navigation.navigate('Shipments') });
+    }
+    actions.push({ label: 'View Map', icon: 'map-marker', color: Colors.accent, onPress: () => navigation.navigate('Map') });
+    actions.push({ label: 'Training', icon: 'school', color: Colors.info, onPress: () => navigation.navigate('Training') });
+    return actions;
+  }, [canManage, canSeeMachines, canSeeShipments, navigation]);
+
+  const showSkeleton = isLoading && !dashboardData;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
@@ -165,10 +227,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               </View>
             )}
           </Pressable>
-          <Pressable style={styles.avatarButton} onPress={() => logout()}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{user?.email ? user.email.split('@')[0].slice(0,2).toUpperCase() : 'JO'}</Text>
-            </View>
+          <Pressable style={styles.headerButton} onPress={openDrawer} hitSlop={8}>
+            <Icon name="menu" size={26} color={Colors.textPrimary} />
           </Pressable>
         </View>
       </View>
@@ -178,74 +238,128 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.primary}
-            colors={[Colors.primary]}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />
         }
       >
-        {/* Stats Cards - Horizontal Scroll */}
-        {errorMessage && (
+        {loadError && (
           <View style={styles.section}>
-            <Card variant="outlined">
-              <Text style={styles.errorText}>{errorMessage}</Text>
-              <Button title="Retry" onPress={fetchDashboardData} size="sm" />
-            </Card>
+            <ErrorState
+              error={loadError}
+              variant="inline"
+              onRetry={fetchDashboardData}
+            />
           </View>
         )}
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.statsContainer}
-        >
-          {stats.map((stat, index) => (
-            <StatCard
-              key={index}
-              title={stat.title}
-              value={stat.value}
-              icon={stat.icon}
-              iconColor={stat.color}
-              trend={undefined}
-              style={{ width: wp(40), marginRight: Spacing.md }}
-              size="sm"
-            />
-          ))}
-        </ScrollView>
+        {/* Stat cards */}
+        {showSkeleton ? (
+          <View style={styles.statsSkeletonRow}>
+            {[0, 1, 2].map((i) => (
+              <Card key={i} variant="elevated" style={{ width: wp(40), marginRight: Spacing.md }}>
+                <Skeleton width={36} height={36} radius={BorderRadius.md} />
+                <Skeleton width={56} height={24} style={{ marginTop: Spacing.md }} />
+                <Skeleton width={80} height={12} style={{ marginTop: Spacing.sm }} />
+              </Card>
+            ))}
+          </View>
+        ) : (
+          <Animated.View style={{ opacity: contentAnim }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsContainer}>
+              {statCards.map((stat) => (
+                <Card
+                  key={stat.title}
+                  variant="elevated"
+                  style={{ width: wp(40), marginRight: Spacing.md, padding: Spacing.md }}
+                >
+                  <View style={[styles.statIcon, { backgroundColor: `${stat.color}20` }]}>
+                    <Icon name={stat.icon} size={20} color={stat.color} />
+                  </View>
+                  <CountUp value={stat.value} style={styles.statValue} />
+                  <Text style={styles.statTitle}>{stat.title}</Text>
+                </Card>
+              ))}
+            </ScrollView>
+          </Animated.View>
+        )}
 
-        {/* Fleet Status */}
+        {/* Machines by Status */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Fleet Status</Text>
-            <Pressable onPress={() => onNavigate?.('Machines')}>
-              <Text style={styles.seeAll}>See All</Text>
-            </Pressable>
+            <Text style={styles.sectionTitle}>Machines by Status</Text>
+            {canSeeMachines && (
+              <Pressable onPress={() => navigation.navigate('Machines')}>
+                <Text style={styles.seeAll}>See All</Text>
+              </Pressable>
+            )}
           </View>
           <Card variant="elevated">
-            <View style={styles.fleetStatusContainer}>
-              {/* Donut Chart Placeholder */}
-              <View style={styles.chartContainer}>
-                <View style={styles.donutChart}>
-                  <View style={styles.donutCenter}>
-                    <Text style={styles.donutValue}>{dashboardData?.machineStats.total ?? 0}</Text>
-                    <Text style={styles.donutLabel}>Total</Text>
-                  </View>
+            {showSkeleton ? (
+              [0, 1, 2, 3].map((i) => (
+                <View key={i} style={styles.statusRow}>
+                  <Skeleton width={110} height={14} />
+                  <Skeleton width={'40%'} height={8} style={{ marginLeft: Spacing.md, flex: 1 }} />
                 </View>
-              </View>
-              {/* Legend */}
-              <View style={styles.legendContainer}>
-                {fleetStatus.map((item, index) => (
-                  <View key={index} style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                    <Text style={styles.legendLabel}>{item.label}</Text>
-                    <Text style={styles.legendValue}>{item.value}</Text>
-                    <Text style={styles.legendPercentage}>{item.percentage}%</Text>
+              ))
+            ) : statusBreakdown.length === 0 ? (
+              <Text style={styles.emptyText}>No machines yet.</Text>
+            ) : (
+              <Animated.View style={{ opacity: contentAnim }}>
+                {statusBreakdown.map((item) => {
+                  const meta = STATUS_META[item.status] || { label: item.status, color: Colors.textMuted, icon: 'cog' };
+                  return (
+                    <View key={item.status} style={styles.statusRow}>
+                      <View style={styles.statusLabelGroup}>
+                        <View style={[styles.statusDot, { backgroundColor: meta.color }]} />
+                        <Text style={styles.statusLabel}>{meta.label}</Text>
+                      </View>
+                      <View style={styles.statusBarGroup}>
+                        <AnimatedBar percentage={item.percentage} color={meta.color} />
+                      </View>
+                      <Text style={styles.statusCount}>{item.count}</Text>
+                    </View>
+                  );
+                })}
+              </Animated.View>
+            )}
+          </Card>
+        </View>
+
+        {/* Machines per Warehouse */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Machines per Warehouse</Text>
+          </View>
+          <Card variant="elevated">
+            {showSkeleton ? (
+              [0, 1].map((i) => (
+                <View key={i} style={styles.statusRow}>
+                  <Skeleton width={120} height={14} />
+                  <Skeleton width={'30%'} height={8} style={{ marginLeft: Spacing.md, flex: 1 }} />
+                </View>
+              ))
+            ) : warehouses.length === 0 ? (
+              <Text style={styles.emptyText}>No warehouses with machines yet.</Text>
+            ) : (
+              <Animated.View style={{ opacity: contentAnim }}>
+                {warehouses.map((warehouse, index) => (
+                  <View key={warehouse.warehouseId} style={styles.statusRow}>
+                    <View style={styles.statusLabelGroup}>
+                      <Icon name="warehouse" size={14} color={Colors.textSecondary} style={{ marginRight: Spacing.sm }} />
+                      <Text style={styles.statusLabel} numberOfLines={1}>
+                        {warehouse.warehouseName}
+                      </Text>
+                    </View>
+                    <View style={styles.statusBarGroup}>
+                      <AnimatedBar
+                        percentage={(warehouse.count / maxWarehouseCount) * 100}
+                        color={index === 0 ? Colors.primary : Colors.secondary}
+                      />
+                    </View>
+                    <Text style={styles.statusCount}>{warehouse.count}</Text>
                   </View>
                 ))}
-              </View>
-            </View>
+              </Animated.View>
+            )}
           </Card>
         </View>
 
@@ -253,42 +367,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.quickActionsGrid}>
-            <Pressable
-              style={styles.quickActionItem}
-              onPress={() => onNavigate?.('AddMachine')}
-            >
-              <View style={[styles.quickActionIcon, { backgroundColor: `${Colors.primary}20` }]}>
-                <Icon name="plus" size={24} color={Colors.primary} />
-              </View>
-              <Text style={styles.quickActionLabel}>Add Machine</Text>
-            </Pressable>
-            <Pressable
-              style={styles.quickActionItem}
-              onPress={() => onNavigate?.('Shipments')}
-            >
-              <View style={[styles.quickActionIcon, { backgroundColor: `${Colors.secondary}20` }]}>
-                <Icon name="truck" size={24} color={Colors.secondary} />
-              </View>
-              <Text style={styles.quickActionLabel}>New Shipment</Text>
-            </Pressable>
-            <Pressable
-              style={styles.quickActionItem}
-              onPress={() => onNavigate?.('Map')}
-            >
-              <View style={[styles.quickActionIcon, { backgroundColor: `${Colors.accent}20` }]}>
-                <Icon name="map-marker" size={24} color={Colors.accent} />
-              </View>
-              <Text style={styles.quickActionLabel}>View Map</Text>
-            </Pressable>
-            <Pressable
-              style={styles.quickActionItem}
-              onPress={() => onNavigate?.('Reports')}
-            >
-              <View style={[styles.quickActionIcon, { backgroundColor: `${Colors.info}20` }]}>
-                <Icon name="chart-bar" size={24} color={Colors.info} />
-              </View>
-              <Text style={styles.quickActionLabel}>Reports</Text>
-            </Pressable>
+            {quickActions.map((action) => (
+              <Pressable key={action.label} style={styles.quickActionItem} onPress={action.onPress}>
+                <View style={[styles.quickActionIcon, { backgroundColor: `${action.color}20` }]}>
+                  <Icon name={action.icon} size={24} color={action.color} />
+                </View>
+                <Text style={styles.quickActionLabel}>{action.label}</Text>
+              </Pressable>
+            ))}
           </View>
         </View>
 
@@ -296,19 +382,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <Pressable>
-              <Text style={styles.seeAll}>View All</Text>
-            </Pressable>
           </View>
-          {isLoading && recentActivity.length === 0 && (
-            <Text style={styles.loadingText}>Loading dashboard data...</Text>
-          )}
-          {!isLoading && recentActivity.length === 0 && (
+          {showSkeleton ? (
+            [0, 1, 2].map((i) => (
+              <View key={i} style={styles.activitySkeletonRow}>
+                <Skeleton width={40} height={40} radius={BorderRadius.full} />
+                <View style={{ flex: 1, marginLeft: Spacing.md }}>
+                  <Skeleton width={'70%'} height={14} />
+                  <Skeleton width={'45%'} height={12} style={{ marginTop: Spacing.sm }} />
+                </View>
+              </View>
+            ))
+          ) : recentActivity.length === 0 ? (
             <Text style={styles.emptyText}>No recent activity yet.</Text>
+          ) : (
+            <Animated.View style={{ opacity: contentAnim }}>
+              {recentActivity.map((activity) => (
+                <ActivityItem key={activity.id} activity={activity} />
+              ))}
+            </Animated.View>
           )}
-          {recentActivity.map((activity) => (
-            <ActivityItem key={activity.id} activity={activity} />
-          ))}
         </View>
 
         <View style={styles.bottomPadding} />
@@ -392,6 +485,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.lg,
   },
+  statsSkeletonRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
+  },
+  statIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.md,
+  },
+  statValue: {
+    fontSize: FontSizes.xl,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: Spacing.xs,
+  },
+  statTitle: {
+    fontSize: FontSizes.xs,
+    color: Colors.textSecondary,
+    fontWeight: '500',
+  },
   section: {
     paddingHorizontal: Spacing.lg,
     marginBottom: Spacing.xl,
@@ -412,67 +529,46 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     fontWeight: '500',
   },
-  fleetStatusContainer: {
+  statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: Spacing.sm,
   },
-  chartContainer: {
-    flex: 1,
-    alignItems: 'center',
-    padding: Spacing.md,
-  },
-  donutChart: {
-    width: 100,
-    height: 100,
-    borderRadius: BorderRadius.full,
-    borderWidth: 12,
-    borderColor: Colors.success,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  donutCenter: {
-    alignItems: 'center',
-  },
-  donutValue: {
-    fontSize: FontSizes.xxl,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-  },
-  donutLabel: {
-    fontSize: FontSizes.xs,
-    color: Colors.textSecondary,
-  },
-  legendContainer: {
-    flex: 1,
-    gap: Spacing.sm,
-  },
-  legendItem: {
+  statusLabelGroup: {
     flexDirection: 'row',
     alignItems: 'center',
+    width: 130,
   },
-  legendDot: {
+  statusDot: {
     width: 10,
     height: 10,
     borderRadius: BorderRadius.full,
     marginRight: Spacing.sm,
   },
-  legendLabel: {
+  statusLabel: {
     flex: 1,
     fontSize: FontSizes.sm,
     color: Colors.textSecondary,
   },
-  legendValue: {
-    fontSize: FontSizes.sm,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginRight: Spacing.sm,
-    minWidth: 30,
-    textAlign: 'right',
+  statusBarGroup: {
+    flex: 1,
+    marginHorizontal: Spacing.md,
   },
-  legendPercentage: {
-    fontSize: FontSizes.xs,
-    color: Colors.textMuted,
-    minWidth: 35,
+  barTrack: {
+    height: 8,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.backgroundInput,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: BorderRadius.full,
+  },
+  statusCount: {
+    fontSize: FontSizes.sm,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    minWidth: 28,
     textAlign: 'right',
   },
   quickActionsGrid: {
@@ -500,6 +596,11 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontWeight: '500',
   },
+  activitySkeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+  },
   bottomPadding: {
     height: 100,
   },
@@ -508,13 +609,10 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     marginBottom: Spacing.sm,
   },
-  loadingText: {
-    color: Colors.textSecondary,
-    fontSize: FontSizes.sm,
-  },
   emptyText: {
     color: Colors.textMuted,
     fontSize: FontSizes.sm,
+    paddingVertical: Spacing.sm,
   },
 });
 

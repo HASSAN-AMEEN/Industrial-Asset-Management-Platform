@@ -7,12 +7,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
 import { Header, Input, Button, Card } from '../components';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { MachineStatus, MachineFormData } from '../types';
+import machineService from '../services/machine';
+import warehouseService, { Warehouse } from '../services/warehouse';
 
 const machineTypes = ['Pump', 'Compressor', 'Generator', 'Press', 'Motor', 'Other'];
 
@@ -32,6 +35,8 @@ export const AddMachineScreen: React.FC<AddMachineScreenProps> = ({
   onBackPress,
   onSubmit,
 }) => {
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [formData, setFormData] = useState<MachineFormData>({
     serialNumber: '',
     model: '',
@@ -40,8 +45,31 @@ export const AddMachineScreen: React.FC<AddMachineScreenProps> = ({
     location: '',
   });
   const [errors, setErrors] = useState<Partial<Record<keyof MachineFormData, string>>>({});
+  const [warehouseError, setWarehouseError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const loadWarehouses = async () => {
+      try {
+        const data = await warehouseService.list();
+        if (!isMounted) return;
+        setWarehouses(data);
+        setSelectedWarehouseId((current) => current || data[0]?.id || '');
+      } catch (error) {
+        if (!isMounted) return;
+        setWarehouseError(error instanceof Error ? error.message : 'Failed to load warehouses');
+      }
+    };
+
+    loadWarehouses();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const updateField = <K extends keyof MachineFormData>(field: K, value: MachineFormData[K]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -62,12 +90,12 @@ export const AddMachineScreen: React.FC<AddMachineScreenProps> = ({
     if (!formData.type) {
       newErrors.type = 'Machine type is required';
     }
-    if (!formData.location.trim()) {
-      newErrors.location = 'Location is required';
+    if (!selectedWarehouseId) {
+      setWarehouseError('Warehouse is required');
     }
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return Object.keys(newErrors).length === 0 && !!selectedWarehouseId;
   };
 
   const handleSubmit = async () => {
@@ -75,8 +103,15 @@ export const AddMachineScreen: React.FC<AddMachineScreenProps> = ({
 
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await machineService.create({
+        serialNumber: formData.serialNumber.trim(),
+        model: formData.model.trim(),
+        category: formData.type,
+        warehouseId: selectedWarehouseId,
+      });
       onSubmit?.(formData);
+      Alert.alert('Machine created', 'The machine was saved successfully.');
+      onBackPress?.();
     } finally {
       setLoading(false);
     }
@@ -177,6 +212,32 @@ export const AddMachineScreen: React.FC<AddMachineScreenProps> = ({
             </View>
           </Card>
 
+          <Card variant="elevated" style={styles.section}>
+            <Text style={styles.sectionTitle}>Warehouse</Text>
+            <Text style={styles.helperText}>Choose where this machine should be stored.</Text>
+            {warehouseError ? <Text style={styles.errorText}>{warehouseError}</Text> : null}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.warehouseRow}>
+              {warehouses.map((warehouse) => {
+                const selected = selectedWarehouseId === warehouse.id;
+                return (
+                  <Pressable
+                    key={warehouse.id}
+                    style={[styles.warehouseChip, selected && styles.warehouseChipSelected]}
+                    onPress={() => {
+                      setSelectedWarehouseId(warehouse.id);
+                      setWarehouseError('');
+                    }}
+                  >
+                    <Text style={[styles.warehouseChipText, selected && styles.warehouseChipTextSelected]}>
+                      {warehouse.name}
+                    </Text>
+                    <Text style={styles.warehouseChipMeta}>{warehouse.city}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Card>
+
           {/* Status Selection */}
           <Card variant="elevated" style={styles.section}>
             <Text style={styles.sectionTitle}>Initial Status</Text>
@@ -206,19 +267,6 @@ export const AddMachineScreen: React.FC<AddMachineScreenProps> = ({
                 </Pressable>
               ))}
             </View>
-          </Card>
-
-          {/* Location */}
-          <Card variant="elevated" style={styles.section}>
-            <Text style={styles.sectionTitle}>Location</Text>
-            <Input
-              label="Installation Location"
-              placeholder="Enter location or site name"
-              value={formData.location}
-              onChangeText={(text) => updateField('location', text)}
-              leftIcon="map-marker"
-              error={errors.location}
-            />
           </Card>
 
           {/* Submit Button */}
@@ -262,6 +310,40 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     marginBottom: Spacing.lg,
+  },
+  helperText: {
+    color: Colors.textSecondary,
+    fontSize: FontSizes.sm,
+    marginBottom: Spacing.sm,
+  },
+  warehouseRow: {
+    gap: Spacing.sm,
+  },
+  warehouseChip: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: Colors.backgroundElevated,
+    minWidth: 150,
+  },
+  warehouseChipSelected: {
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}15`,
+  },
+  warehouseChipText: {
+    color: Colors.textPrimary,
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+  },
+  warehouseChipTextSelected: {
+    color: Colors.primary,
+  },
+  warehouseChipMeta: {
+    color: Colors.textMuted,
+    fontSize: FontSizes.xs,
+    marginTop: 4,
   },
   inputContainer: {
     marginBottom: Spacing.lg,

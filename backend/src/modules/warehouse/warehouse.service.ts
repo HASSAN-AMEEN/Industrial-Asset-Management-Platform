@@ -11,7 +11,7 @@ export interface CreateWarehouseInput {
 
 export class WarehouseService {
   async create(input: CreateWarehouseInput) {
-    return prisma.warehouse.create({
+    return prisma.warehouses.create({
       data: {
         name: input.name,
         address: input.address,
@@ -24,13 +24,13 @@ export class WarehouseService {
   }
 
   async listAll() {
-    return prisma.warehouse.findMany({
+    return prisma.warehouses.findMany({
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async getById(id: string) {
-    return prisma.warehouse.findUnique({
+    return prisma.warehouses.findUnique({
       where: { id },
     });
   }
@@ -39,7 +39,7 @@ export class WarehouseService {
     id: string,
     input: Partial<CreateWarehouseInput>
   ) {
-    return prisma.warehouse.update({
+    return prisma.warehouses.update({
       where: { id },
       data: {
         name: input.name,
@@ -53,7 +53,7 @@ export class WarehouseService {
   }
 
   async remove(id: string) {
-    const machineCount = await prisma.machine.count({ where: { warehouseId: id } });
+    const machineCount = await prisma.machines.count({ where: { warehouseId: id } });
 
     if (machineCount > 0) {
       throw new Error(
@@ -61,14 +61,24 @@ export class WarehouseService {
       );
     }
 
+    const shipmentCount = await prisma.shipments.count({
+      where: { OR: [{ fromWarehouseId: id }, { toWarehouseId: id }] },
+    });
+
+    if (shipmentCount > 0) {
+      throw new Error(
+        `Cannot delete warehouse: ${shipmentCount} shipment(s) reference it. Remove or reassign those shipments first.`
+      );
+    }
+
     return prisma.$transaction(async (tx) => {
       // Keep users (including warehouse managers) but detach them from this warehouse.
-      await tx.user.updateMany({
+      await tx.users.updateMany({
         where: { warehouseId: id },
         data: { warehouseId: null },
       });
 
-      return tx.warehouse.delete({
+      return tx.warehouses.delete({
         where: { id },
       });
     });
@@ -88,14 +98,14 @@ export class WarehouseService {
       where.status = filters.status;
     }
 
-    return prisma.machine.findMany({
+    return prisma.machines.findMany({
       where,
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async getWarehouseInventory(warehouseId: string) {
-    const machines = await prisma.machine.findMany({
+    const machines = await prisma.machines.findMany({
       where: { warehouseId },
     });
 
@@ -114,11 +124,12 @@ export class WarehouseService {
   }
 
   async listWarehouseManagers() {
-    return prisma.user.findMany({
+    return prisma.users.findMany({
       where: { role: 'WAREHOUSE_MANAGER' },
       select: {
         id: true,
         email: true,
+        contact: true,
         warehouseId: true,
         createdAt: true,
       },
@@ -127,12 +138,12 @@ export class WarehouseService {
   }
 
   async assignManager(warehouseId: string, managerUserId: string) {
-    const warehouse = await prisma.warehouse.findUnique({ where: { id: warehouseId } });
+    const warehouse = await prisma.warehouses.findUnique({ where: { id: warehouseId } });
     if (!warehouse) {
       throw new Error('Warehouse not found');
     }
 
-    const manager = await prisma.user.findUnique({ where: { id: managerUserId } });
+    const manager = await prisma.users.findUnique({ where: { id: managerUserId } });
     if (!manager) {
       throw new Error('Manager user not found');
     }
@@ -143,7 +154,7 @@ export class WarehouseService {
 
     return prisma.$transaction(async (tx) => {
       // One warehouse should map to one manager assignment in this lightweight flow.
-      await tx.user.updateMany({
+      await tx.users.updateMany({
         where: {
           role: 'WAREHOUSE_MANAGER',
           warehouseId,
@@ -152,7 +163,7 @@ export class WarehouseService {
         data: { warehouseId: null },
       });
 
-      const updatedManager = await tx.user.update({
+      const updatedManager = await tx.users.update({
         where: { id: managerUserId },
         data: { warehouseId },
         select: {
@@ -163,7 +174,7 @@ export class WarehouseService {
         },
       });
 
-      const updatedWarehouse = await tx.warehouse.update({
+      const updatedWarehouse = await tx.warehouses.update({
         where: { id: warehouseId },
         data: { manager: updatedManager.email },
       });

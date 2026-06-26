@@ -24,7 +24,7 @@ export class NotificationsService {
     const warehouseScoped = isWarehouseManagerScoped(scope);
 
     const [activeShipments, maintenanceMachines, maintenanceInstallations] = await Promise.all([
-      prisma.shipment.count({
+      prisma.shipments.count({
         where: {
           status: {
             in: ['CREATED', 'DISPATCHED', 'IN_TRANSIT'],
@@ -39,13 +39,13 @@ export class NotificationsService {
             : {}),
         },
       }),
-      prisma.machine.count({
+      prisma.machines.count({
         where: {
           status: 'UNDER_MAINTENANCE',
           ...(warehouseScoped ? { warehouseId: scope.warehouseId! } : {}),
         },
       }),
-      prisma.installation.count({
+      prisma.installations.count({
         where: {
           status: 'MAINTENANCE',
           ...(warehouseScoped

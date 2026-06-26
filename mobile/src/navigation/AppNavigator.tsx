@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View, Pressable, Text } from 'react-native';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,8 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
 import { RootStackParamList, MainTabParamList } from '../types';
 import { useAuth } from '../store/AuthContext';
+import { BackendAuthRole } from '../services/auth';
+import AppDrawer from '../components/AppDrawer';
 
 // Screens
 import {
@@ -19,8 +21,10 @@ import {
   ShipmentListScreen,
   MapScreen,
   AddMachineScreen,
-  UserManagementScreen,
+  TrainingLibraryScreen,
+  TrainingDetailScreen,
   WarehouseManagementScreen,
+  UserManagementScreen,
 } from '../screens';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -41,30 +45,86 @@ const DarkTheme = {
   },
 };
 
+// Per-role tab visibility, derived from the SRD permission matrix.
+// Keep order consistent so the bottom bar lays out the same shape for everyone.
+type TabName = keyof MainTabParamList;
+
+interface TabDef {
+  name: TabName;
+  component: React.ComponentType<any>;
+  icon: string;
+  label: string;
+  roles: BackendAuthRole[];
+}
+
+const ALL_TABS: TabDef[] = [
+  {
+    name: 'Dashboard',
+    component: DashboardScreen,
+    icon: 'view-dashboard',
+    label: 'Home',
+    roles: ['SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_OPS', 'TECHNICIAN'],
+  },
+  {
+    name: 'Machines',
+    component: MachineListScreen,
+    icon: 'cog',
+    label: 'Machines',
+    roles: ['SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_OPS'],
+  },
+  {
+    name: 'Shipments',
+    component: ShipmentListScreen,
+    icon: 'truck',
+    label: 'Shipments',
+    roles: ['SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_OPS'],
+  },
+  {
+    name: 'Map',
+    component: MapScreen,
+    icon: 'map',
+    label: 'Map',
+    roles: ['SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_OPS', 'TECHNICIAN'],
+  },
+  {
+    name: 'Training',
+    component: TrainingLibraryScreen,
+    icon: 'school',
+    label: 'Training',
+    roles: ['SUPER_ADMIN', 'WAREHOUSE_MANAGER', 'SALES_OPS', 'TECHNICIAN'],
+  },
+  {
+    name: 'Warehouses',
+    component: WarehouseManagementScreen,
+    icon: 'warehouse',
+    label: 'Warehouses',
+    roles: ['SUPER_ADMIN', 'WAREHOUSE_MANAGER'],
+  },
+];
+
+const getVisibleTabs = (role: BackendAuthRole | undefined): TabDef[] => {
+  if (!role) return [];
+  return ALL_TABS.filter((tab) => tab.roles.includes(role));
+};
+
 // Custom Tab Bar Component
 interface TabBarProps {
   state: any;
   descriptors: any;
   navigation: any;
+  tabs: TabDef[];
 }
 
-const CustomTabBar: React.FC<TabBarProps> = ({ state, descriptors, navigation }) => {
+const CustomTabBar: React.FC<TabBarProps> = ({ state, descriptors, navigation, tabs }) => {
   const insets = useSafeAreaInsets();
-
-  const tabs = [
-    { name: 'Dashboard', icon: 'view-dashboard', label: 'Home' },
-    { name: 'Machines', icon: 'cog', label: 'Machines' },
-    { name: 'Shipments', icon: 'truck', label: 'Shipments' },
-    { name: 'Map', icon: 'map', label: 'Map' },
-    { name: 'Warehouses', icon: 'warehouse', label: 'Warehouses' },
-  ];
 
   return (
     <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, Spacing.sm) }]}>
       {state.routes.map((route: any, index: number) => {
         const { options } = descriptors[route.key];
         const isFocused = state.index === index;
-        const tab = tabs[index];
+        const tab = tabs.find((t) => t.name === route.name);
+        if (!tab) return null;
 
         const onPress = () => {
           const event = navigation.emit({
@@ -111,35 +171,21 @@ const CustomTabBar: React.FC<TabBarProps> = ({ state, descriptors, navigation })
   );
 };
 
-// Settings Screen Placeholder
-const SettingsScreen = () => (
-  <RoleAwareSettingsScreen />
-);
-
-const RoleAwareSettingsScreen = () => {
-  const { user } = useAuth();
-
-  if (user?.role === 'SUPER_ADMIN') {
-    return <WarehouseManagementScreen />;
-  }
-
-  return <UserManagementScreen />;
-};
-
 // Main Tab Navigator
 const MainTabNavigator = () => {
+  const { user } = useAuth();
+  const visibleTabs = React.useMemo(() => getVisibleTabs(user?.role), [user?.role]);
+
   return (
     <Tab.Navigator
-      tabBar={(props) => <CustomTabBar {...props} />}
+      tabBar={(props) => <CustomTabBar {...props} tabs={visibleTabs} />}
       screenOptions={{
         headerShown: false,
       }}
     >
-      <Tab.Screen name="Dashboard" component={DashboardScreen} />
-      <Tab.Screen name="Machines" component={MachineListScreen} />
-      <Tab.Screen name="Shipments" component={ShipmentListScreen} />
-      <Tab.Screen name="Map" component={MapScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
+      {visibleTabs.map((tab) => (
+        <Tab.Screen key={tab.name} name={tab.name} component={tab.component} />
+      ))}
     </Tab.Navigator>
   );
 };
@@ -147,9 +193,10 @@ const MainTabNavigator = () => {
 // Root Stack Navigator
 export const AppNavigator = () => {
   const { isAuthenticated, login, signup } = useAuth();
+  const navigationRef = useNavigationContainerRef();
 
   return (
-    <NavigationContainer theme={DarkTheme}>
+    <NavigationContainer theme={DarkTheme} ref={navigationRef}>
       <Stack.Navigator
         key={isAuthenticated ? 'app-stack' : 'auth-stack'}
         initialRouteName={isAuthenticated ? 'Main' : 'Login'}
@@ -181,10 +228,13 @@ export const AppNavigator = () => {
           <>
             <Stack.Screen name="Main" component={MainTabNavigator} />
             <Stack.Screen name="MachineDetail" component={MachineDetailScreen} />
+            <Stack.Screen name="TrainingDetail" component={TrainingDetailScreen} />
             <Stack.Screen name="AddMachine" component={AddMachineScreen} />
+            <Stack.Screen name="UserManagement" component={UserManagementScreen} />
           </>
         )}
       </Stack.Navigator>
+      {isAuthenticated && <AppDrawer navigate={(route) => navigationRef.navigate(route as never)} />}
     </NavigationContainer>
   );
 };

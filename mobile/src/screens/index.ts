@@ -13,3 +13,5 @@ export { default as MapScreen } from './MapScreen';
 export { default as AddMachineScreen } from './AddMachineScreen';
 export { default as UserManagementScreen } from './UserManagementScreen';
 export { default as WarehouseManagementScreen } from './WarehouseManagementScreen';
+export { default as TrainingLibraryScreen } from './TrainingLibraryScreen';
+export { default as TrainingDetailScreen } from './TrainingDetailScreen';

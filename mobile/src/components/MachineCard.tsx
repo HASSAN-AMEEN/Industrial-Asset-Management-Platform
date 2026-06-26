@@ -4,7 +4,7 @@ import { Colors, BorderRadius, Spacing, FontSizes } from '../utils/theme';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import Card from './Card';
 import StatusBadge from './StatusBadge';
-import { BackendMachineStatus, MachineHistoryEntry } from '../services/machine';
+import { BackendMachineStatus } from '../services/machine';
 
 interface MachineCardProps {
   machine: {
@@ -15,35 +15,21 @@ interface MachineCardProps {
     status: BackendMachineStatus;
     location: string;
   };
-  history: MachineHistoryEntry[];
   statusUpdating?: boolean;
   onPress?: () => void;
   onEditPress?: () => void;
+  onDeletePress?: () => void;
   onStatusPress?: () => void;
 }
 
-const formatDateTime = (value: string): string => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-};
-
 export const MachineCard: React.FC<MachineCardProps> = ({
   machine,
-  history,
   statusUpdating = false,
   onPress,
   onEditPress,
+  onDeletePress,
   onStatusPress,
 }) => {
-  const [showFullHistory, setShowFullHistory] = React.useState(false);
-  const visibleHistory = showFullHistory ? history : history.slice(0, 2);
-
   return (
     <Card onPress={onPress} variant="elevated" style={styles.card}>
       <View style={styles.header}>
@@ -67,9 +53,18 @@ export const MachineCard: React.FC<MachineCardProps> = ({
             <Icon name="map-marker" size={16} color={Colors.textSecondary} />
             <Text style={styles.detailText}>{machine.location}</Text>
           </View>
-          <Pressable onPress={onEditPress} style={styles.editButton}>
-            <Icon name="pencil" size={16} color={Colors.info} />
-          </Pressable>
+          <View style={styles.actionsRow}>
+            {onEditPress && (
+              <Pressable onPress={onEditPress} style={styles.actionButton}>
+                <Icon name="pencil" size={16} color={Colors.info} />
+              </Pressable>
+            )}
+            {onDeletePress && (
+              <Pressable onPress={onDeletePress} style={styles.actionButton}>
+                <Icon name="trash-can-outline" size={16} color={Colors.error} />
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.detailRow}>
@@ -78,34 +73,9 @@ export const MachineCard: React.FC<MachineCardProps> = ({
         </View>
       </View>
 
-      <View style={styles.historyContainer}>
-        <Text style={styles.historyTitle}>Recent History</Text>
-        {visibleHistory.length === 0 ? (
-          <Text style={styles.historyEmpty}>No history yet</Text>
-        ) : (
-          visibleHistory.map((entry) => (
-            <View key={entry.id} style={styles.historyItem}>
-              <View style={styles.historyTopRow}>
-                {entry.fromStatus === 'SYSTEM' ? (
-                  <Text style={styles.initialText}>Initial:</Text>
-                ) : (
-                  <StatusBadge status={entry.fromStatus as BackendMachineStatus} size="sm" />
-                )}
-                <Text style={styles.arrowText}>{entry.fromStatus === 'SYSTEM' ? '->' : '->'}</Text>
-                <StatusBadge status={entry.toStatus} size="sm" />
-                <Text style={styles.historyDate}>{formatDateTime(entry.createdAt)}</Text>
-              </View>
-              <Text style={styles.historyMeta}>User: {entry.changedByName || entry.changedBy}</Text>
-              <Text style={styles.historyMeta}>Comment: {entry.comment || 'No comment'}</Text>
-            </View>
-          ))
-        )}
-
-        {(history.length > 2 || showFullHistory) && (
-          <Pressable onPress={() => setShowFullHistory((prev) => !prev)}>
-            <Text style={styles.expandText}>{showFullHistory ? 'Show less' : 'View all history'}</Text>
-          </Pressable>
-        )}
+      <View style={styles.detailsFooter}>
+        <Text style={styles.detailsHint}>Tap for details & status history</Text>
+        <Icon name="chevron-right" size={18} color={Colors.textMuted} />
       </View>
     </Card>
   );
@@ -175,6 +145,29 @@ const styles = StyleSheet.create({
   editButton: {
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+  },
+  actionButton: {
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: Spacing.xs,
+  },
+  detailsFooter: {
+    marginTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: Spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  detailsHint: {
+    color: Colors.textMuted,
+    fontSize: FontSizes.xs,
+    fontWeight: '500',
   },
   historyContainer: {
     marginTop: Spacing.md,

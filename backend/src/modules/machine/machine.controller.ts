@@ -62,28 +62,46 @@ export class MachineController {
         return;
       }
 
-      const { status, warehouseId, model, serialNumber, fromDate, toDate } = req.query as any;
+      const { status, warehouseId, model, serialNumber, category, fromDate, toDate, purchaseFrom, purchaseTo, page, limit } =
+        req.query as any;
 
+      // Warehouse Managers are scoped to their own warehouse.
       let effectiveWarehouseId = warehouseId as string | undefined;
       if (req.user.role === UserRole.WAREHOUSE_MANAGER) {
-        effectiveWarehouseId = (req.user.warehouseId ?? undefined) || '__none__';
+        if (!req.user.warehouseId) {
+          res.status(200).json({ success: true, data: [], pagination: { total: 0, page: 1, limit: 0, hasMore: false } });
+          return;
+        }
+        effectiveWarehouseId = req.user.warehouseId;
       }
 
-      const machines = await this.machineService.list({
+      const pageNum = page ? parseInt(page, 10) : 1;
+      const limitNum = limit ? parseInt(limit, 10) : undefined;
+
+      const result = await this.machineService.list({
         status,
-        warehouseId: effectiveWarehouseId === '__none__' ? undefined : effectiveWarehouseId,
+        warehouseId: effectiveWarehouseId,
         model,
         serialNumber,
+        category,
         fromDate,
         toDate,
+        purchaseFrom,
+        purchaseTo,
+        page: pageNum,
+        limit: limitNum,
       });
 
-      const filtered =
-        req.user.role === UserRole.WAREHOUSE_MANAGER && req.user.warehouseId
-          ? machines.filter(m => m.warehouseId === req.user!.warehouseId)
-          : machines;
-
-      res.status(200).json({ success: true, data: filtered });
+      res.status(200).json({
+        success: true,
+        data: result.items,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          hasMore: result.page * result.limit < result.total,
+        },
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message || 'Failed to fetch machines' });
     }
@@ -218,6 +236,7 @@ export class MachineController {
           longitude?: number;
           siteAddress?: string;
           siteNotes?: string;
+          locationUrl?: string;
         };
       };
       if (!status) {

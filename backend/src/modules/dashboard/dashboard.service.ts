@@ -11,6 +11,17 @@ export interface DashboardActivity {
   createdAt: string;
 }
 
+// Lifecycle order used to present the status breakdown consistently.
+const MACHINE_STATUS_ORDER = [
+  'IN_WAREHOUSE',
+  'RESERVED',
+  'UNDER_SHIPMENT',
+  'DELIVERED',
+  'INSTALLED',
+  'UNDER_MAINTENANCE',
+  'RETURNED',
+] as const;
+
 export interface DashboardResponse {
   machineStats: {
     total: number;
@@ -23,6 +34,10 @@ export interface DashboardResponse {
     value: number;
     percentage: number;
   }>;
+  statusBreakdown: Array<{ status: string; count: number; percentage: number }>;
+  machinesPerWarehouse: Array<{ warehouseId: string; warehouseName: string; count: number }>;
+  installationsCount: number;
+  shipmentsInTransit: number;
   recentActivity: DashboardActivity[];
 }
 
@@ -42,22 +57,35 @@ const isWarehouseManagerScoped = (scope: DashboardScope): boolean => {
 
 export class DashboardService {
   async getDashboard(scope: DashboardScope): Promise<DashboardResponse> {
-    const machineWhere = isWarehouseManagerScoped(scope)
-      ? { warehouseId: scope.warehouseId! }
+    const scoped = isWarehouseManagerScoped(scope);
+    const machineWhere = scoped ? { warehouseId: scope.warehouseId! } : {};
+    const installationWhere = scoped
+      ? { machines_installations_machineIdTomachines: { warehouseId: scope.warehouseId! } }
+      : {};
+    const shipmentWhere = scoped
+      ? {
+          OR: [
+            { fromWarehouseId: scope.warehouseId! },
+            { toWarehouseId: scope.warehouseId! },
+          ],
+        }
       : {};
 
     const [
-      totalMachines,
-      inTransitMachines,
-      maintenanceMachines,
+      statusGroups,
+      warehouseGroups,
+      installationsCount,
+      shipmentsInTransit,
       recentShipments,
       recentInstallations,
       recentMaintenanceUpdates,
     ] = await Promise.all([
-      prisma.machine.count({ where: machineWhere }),
-      prisma.machine.count({ where: { ...machineWhere, status: 'UNDER_SHIPMENT' } }),
-      prisma.machine.count({ where: { ...machineWhere, status: 'UNDER_MAINTENANCE' } }),
-      prisma.shipment.findMany({
+      // One grouped query covers total + every status bucket.
+      prisma.machines.groupBy({ by: ['status'], where: machineWhere, _count: { _all: true } }),
+      prisma.machines.groupBy({ by: ['warehouseId'], where: machineWhere, _count: { _all: true } }),
+      prisma.installations.count({ where: installationWhere }),
+      prisma.shipments.count({ where: { ...shipmentWhere, status: 'IN_TRANSIT' } }),
+      prisma.shipments.findMany({
         where: isWarehouseManagerScoped(scope)
           ? {
               OR: [
@@ -69,16 +97,16 @@ export class DashboardService {
         orderBy: { updatedAt: 'desc' },
         take: 6,
       }),
-      prisma.installation.findMany({
+      prisma.installations.findMany({
         where: isWarehouseManagerScoped(scope)
           ? {
-              machine: {
+              machines_installations_machineIdTomachines: {
                 warehouseId: scope.warehouseId!,
               },
             }
           : undefined,
         include: {
-          machine: {
+          machines_installations_machineIdTomachines: {
             select: {
               model: true,
               serialNumber: true,
@@ -88,19 +116,19 @@ export class DashboardService {
         orderBy: { updatedAt: 'desc' },
         take: 6,
       }),
-      prisma.machineStatusHistory.findMany({
+      prisma.machine_status_history.findMany({
         where: {
           toStatus: 'UNDER_MAINTENANCE',
           ...(isWarehouseManagerScoped(scope)
             ? {
-                machine: {
+                machines: {
                   warehouseId: scope.warehouseId!,
                 },
               }
             : {}),
         },
         include: {
-          machine: {
+          machines: {
             select: {
               model: true,
               serialNumber: true,
@@ -112,7 +140,36 @@ export class DashboardService {
       }),
     ]);
 
+    // Derive every machine count from the single grouped query.
+    const countByStatus = new Map<string, number>(
+      statusGroups.map((group) => [group.status, group._count._all])
+    );
+    const totalMachines = statusGroups.reduce((sum, group) => sum + group._count._all, 0);
+    const inTransitMachines = countByStatus.get('UNDER_SHIPMENT') ?? 0;
+    const maintenanceMachines = countByStatus.get('UNDER_MAINTENANCE') ?? 0;
     const activeMachines = Math.max(totalMachines - inTransitMachines - maintenanceMachines, 0);
+
+    const statusBreakdown = MACHINE_STATUS_ORDER.map((status) => {
+      const count = countByStatus.get(status) ?? 0;
+      return { status, count, percentage: toPercentage(count, totalMachines) };
+    });
+
+    // Resolve warehouse names for the per-warehouse breakdown in one query.
+    const warehouseIds = warehouseGroups.map((group) => group.warehouseId);
+    const warehouses = warehouseIds.length
+      ? await prisma.warehouses.findMany({
+          where: { id: { in: warehouseIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const warehouseNameById = new Map(warehouses.map((warehouse) => [warehouse.id, warehouse.name]));
+    const machinesPerWarehouse = warehouseGroups
+      .map((group) => ({
+        warehouseId: group.warehouseId,
+        warehouseName: warehouseNameById.get(group.warehouseId) ?? 'Unknown',
+        count: group._count._all,
+      }))
+      .sort((a, b) => b.count - a.count);
 
     const shipmentActivities: DashboardActivity[] = recentShipments.map((shipment) => ({
       id: `shipment-${shipment.id}`,
@@ -126,7 +183,7 @@ export class DashboardService {
       id: `installation-${installation.id}`,
       type: 'installation',
       title: `Installation ${installation.status}`,
-      description: `${installation.machine.model} (${installation.machine.serialNumber})`,
+      description: `${installation.machines_installations_machineIdTomachines.model} (${installation.machines_installations_machineIdTomachines.serialNumber})`,
       createdAt: installation.updatedAt.toISOString(),
     }));
 
@@ -134,7 +191,7 @@ export class DashboardService {
       id: `maintenance-${entry.id}`,
       type: 'maintenance',
       title: 'Maintenance Update',
-      description: `${entry.machine.model} (${entry.machine.serialNumber}) moved to maintenance`,
+      description: `${entry.machines.model} (${entry.machines.serialNumber}) moved to maintenance`,
       createdAt: entry.createdAt.toISOString(),
     }));
 
@@ -166,6 +223,10 @@ export class DashboardService {
           percentage: toPercentage(maintenanceMachines, totalMachines),
         },
       ],
+      statusBreakdown,
+      machinesPerWarehouse,
+      installationsCount,
+      shipmentsInTransit,
       recentActivity,
     };
   }

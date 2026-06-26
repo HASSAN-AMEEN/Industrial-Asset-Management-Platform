@@ -1,48 +1,42 @@
+import { randomUUID } from 'crypto';
 import { prisma } from '../../config/database';
 import { MACHINE_STATUSES, MachineStatus, CreateMachineInput, UpdateMachineInput } from './machine.types';
+import { geocodeAddress, normalizeCoordinatePair, parseGoogleMapsUrl } from '../../utils/geo';
 
 const isMachineStatus = (value: any): value is MachineStatus => {
   return MACHINE_STATUSES.includes(value);
 };
 
+// Give interactive transactions room over slower/serverless connections
+// (Prisma's default is only 5s).
+const INTERACTIVE_TX_OPTIONS = { timeout: 30000, maxWait: 20000 } as const;
+
 export class MachineService {
-  private async geocodeAddress(siteAddress: string): Promise<{ latitude?: number; longitude?: number }> {
-    try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(siteAddress)}`,
-        {
-          headers: {
-            'User-Agent': 'TayyabTraders/1.0',
-          },
-        }
-      );
+  // Map the raw Prisma relation names to the friendly shape the clients expect.
+  private shapeMachine(record: any) {
+    if (!record) return record;
+    const {
+      warehouses,
+      clients,
+      installations_machines_installationIdToinstallations,
+      installations_installations_machineIdTomachines,
+      machine_status_history,
+      shipment_items,
+      ...rest
+    } = record;
 
-      if (!response.ok) {
-        return {};
-      }
-
-      const payload = (await response.json()) as Array<{ lat?: string; lon?: string }>;
-      const first = payload?.[0];
-      if (!first?.lat || !first?.lon) {
-        return {};
-      }
-
-      const latitude = Number(first.lat);
-      const longitude = Number(first.lon);
-
-      if (Number.isNaN(latitude) || Number.isNaN(longitude)) {
-        return {};
-      }
-
-      return { latitude, longitude };
-    } catch {
-      return {};
-    }
+    return {
+      ...rest,
+      warehouse: warehouses ?? null,
+      client: clients ?? null,
+      installation: installations_machines_installationIdToinstallations ?? null,
+    };
   }
 
   async create(input: CreateMachineInput, changedByUserId: string) {
-    const machine = await prisma.machine.create({
+    const machine = await prisma.machines.create({
       data: {
+        id: randomUUID(),
         serialNumber: input.serialNumber,
         model: input.model,
         category: input.category,
@@ -51,11 +45,13 @@ export class MachineService {
         status: 'IN_WAREHOUSE',
         warehouseId: input.warehouseId,
         clientId: input.clientId,
+        updatedAt: new Date(),
       },
     });
 
-    await prisma.machineStatusHistory.create({
+    await prisma.machine_status_history.create({
       data: {
+        id: randomUUID(),
         machineId: machine.id,
         fromStatus: 'SYSTEM',
         toStatus: machine.status,
@@ -72,9 +68,14 @@ export class MachineService {
     warehouseId?: string;
     model?: string;
     serialNumber?: string;
+    category?: string;
     fromDate?: string;
     toDate?: string;
-  }) {
+    purchaseFrom?: string;
+    purchaseTo?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: any[]; total: number; page: number; limit: number }> {
     const where: any = {};
 
     if (params.status) {
@@ -83,6 +84,10 @@ export class MachineService {
 
     if (params.warehouseId) {
       where.warehouseId = params.warehouseId;
+    }
+
+    if (params.category) {
+      where.category = { equals: params.category, mode: 'insensitive' };
     }
 
     if (params.model) {
@@ -99,30 +104,50 @@ export class MachineService {
       if (params.toDate) where.createdAt.lte = new Date(params.toDate);
     }
 
-    return prisma.machine.findMany({
-      where,
-      include: {
-        warehouse: true,
-        client: true,
-        installation: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    if (params.purchaseFrom || params.purchaseTo) {
+      where.purchaseDate = {};
+      if (params.purchaseFrom) where.purchaseDate.gte = new Date(params.purchaseFrom);
+      if (params.purchaseTo) where.purchaseDate.lte = new Date(params.purchaseTo);
+    }
+
+    const include = {
+      warehouses: true,
+      clients: true,
+      installations_machines_installationIdToinstallations: true,
+    } as const;
+    const orderBy = { createdAt: 'desc' as const };
+
+    // Pagination is opt-in: when no limit is supplied, return everything (back-compat).
+    const limit = params.limit && params.limit > 0 ? Math.min(params.limit, 100) : undefined;
+    const page = params.page && params.page > 0 ? params.page : 1;
+
+    if (!limit) {
+      const rows = await prisma.machines.findMany({ where, include, orderBy });
+      return { items: rows.map((row) => this.shapeMachine(row)), total: rows.length, page: 1, limit: rows.length };
+    }
+
+    const [rows, total] = await Promise.all([
+      prisma.machines.findMany({ where, include, orderBy, skip: (page - 1) * limit, take: limit }),
+      prisma.machines.count({ where }),
+    ]);
+    return { items: rows.map((row) => this.shapeMachine(row)), total, page, limit };
   }
 
   async getById(id: string) {
-    return prisma.machine.findUnique({
-      where: { id },
-      include: {
-        warehouse: true,
-        client: true,
-        installation: true,
-      },
-    });
+    return prisma.machines
+      .findUnique({
+        where: { id },
+        include: {
+          warehouses: true,
+          clients: true,
+          installations_machines_installationIdToinstallations: true,
+        },
+      })
+      .then((row) => (row ? this.shapeMachine(row) : null));
   }
 
   async update(id: string, input: UpdateMachineInput, changedByUserId: string, comment?: string) {
-    const existing = await prisma.machine.findUnique({ where: { id } });
+    const existing = await prisma.machines.findUnique({ where: { id } });
     if (!existing) {
       throw new Error('Machine not found');
     }
@@ -136,13 +161,13 @@ export class MachineService {
     }
 
     if (input.installationId) {
-      const installation = await prisma.installation.findUnique({ where: { id: input.installationId } });
+      const installation = await prisma.installations.findUnique({ where: { id: input.installationId } });
       if (!installation) {
         throw new Error('Installation not found');
       }
     }
 
-    const updated = await prisma.machine.update({
+    const updated = await prisma.machines.update({
       where: { id },
       data: {
         serialNumber: input.serialNumber,
@@ -154,17 +179,19 @@ export class MachineService {
         clientId: input.clientId === undefined ? undefined : input.clientId,
         installationId: input.installationId === undefined ? undefined : input.installationId,
         status: input.status,
+        updatedAt: new Date(),
       },
       include: {
-        warehouse: true,
-        client: true,
-        installation: true,
+        warehouses: true,
+        clients: true,
+        installations_machines_installationIdToinstallations: true,
       },
     });
 
     if (input.status && input.status !== existing.status) {
-      await prisma.machineStatusHistory.create({
+      await prisma.machine_status_history.create({
         data: {
+          id: randomUUID(),
           machineId: id,
           fromStatus: existing.status,
           toStatus: input.status,
@@ -174,13 +201,27 @@ export class MachineService {
       });
     }
 
-    return updated;
+    return this.shapeMachine(updated);
   }
 
   async remove(id: string) {
-    return prisma.machine.delete({
-      where: { id },
-    });
+    return prisma.$transaction(async (tx) => {
+      await tx.machine_status_history.deleteMany({
+        where: { machineId: id },
+      });
+
+      await tx.shipment_items.deleteMany({
+        where: { machineId: id },
+      });
+
+      await tx.installations.deleteMany({
+        where: { machineId: id },
+      });
+
+      return tx.machines.delete({
+        where: { id },
+      });
+    }, INTERACTIVE_TX_OPTIONS);
   }
 
   async updateStatus(
@@ -194,9 +235,10 @@ export class MachineService {
       longitude?: number;
       siteAddress?: string;
       siteNotes?: string;
+      locationUrl?: string;
     }
   ) {
-    const existing = await prisma.machine.findUnique({ where: { id } });
+    const existing = await prisma.machines.findUnique({ where: { id } });
     if (!existing) {
       throw new Error('Machine not found');
     }
@@ -214,46 +256,80 @@ export class MachineService {
         throw new Error('Machine must have clientId before installation');
       }
 
-      if (!installationInput?.siteAddress) {
-        throw new Error('siteAddress is required when setting status to INSTALLED');
+      const locationUrl = installationInput?.locationUrl?.trim();
+      const hasLink = !!locationUrl;
+      const hasAddress = !!installationInput?.siteAddress?.trim();
+
+      if (!hasLink && !hasAddress) {
+        throw new Error('Provide a Google Maps location link or a site address when setting status to INSTALLED');
       }
 
-      const coordinates =
-        installationInput.latitude !== undefined && installationInput.longitude !== undefined
-          ? { latitude: installationInput.latitude, longitude: installationInput.longitude }
-          : await this.geocodeAddress(installationInput.siteAddress);
+      const hasLatitude = installationInput?.latitude !== undefined;
+      const hasLongitude = installationInput?.longitude !== undefined;
+      if (hasLatitude !== hasLongitude) {
+        throw new Error('Both latitude and longitude are required when one is provided');
+      }
+
+      // Coordinate resolution priority: Google Maps link -> explicit lat/lng -> geocoded address.
+      let coordinates: { latitude?: number; longitude?: number } | null = null;
+
+      if (hasLink) {
+        coordinates = await parseGoogleMapsUrl(locationUrl as string);
+        if (!coordinates) {
+          throw new Error(
+            'Could not read a location from that Google Maps link. Open the place in Google Maps, tap Share → Copy link, and paste that.'
+          );
+        }
+      } else if (hasLatitude && hasLongitude) {
+        coordinates = normalizeCoordinatePair(
+          installationInput!.latitude as number,
+          installationInput!.longitude as number
+        );
+        if (!coordinates) {
+          throw new Error('Invalid coordinate values. Latitude must be between -90 and 90, longitude between -180 and 180');
+        }
+      } else {
+        coordinates = await geocodeAddress(installationInput!.siteAddress as string);
+      }
+
+      const latitude = coordinates?.latitude;
+      const longitude = coordinates?.longitude;
 
       const { machine } = await prisma.$transaction(async (tx) => {
-        const installation = await tx.installation.create({
+        const installation = await tx.installations.create({
           data: {
+            id: randomUUID(),
             machineId: id,
             clientId: existing.clientId,
-            installedAt: installationInput.installedAt ? new Date(installationInput.installedAt) : new Date(),
+            installedAt: installationInput?.installedAt ? new Date(installationInput.installedAt) : new Date(),
             installedBy: changedByUserId,
-            latitude: coordinates.latitude,
-            longitude: coordinates.longitude,
-            siteAddress: installationInput.siteAddress,
-            siteNotes: installationInput.siteNotes,
+            latitude,
+            longitude,
+            siteAddress: installationInput?.siteAddress,
+            siteNotes: installationInput?.siteNotes,
             status: 'ACTIVE',
+            updatedAt: new Date(),
           },
         });
 
-        const machine = await tx.machine.update({
+        const machine = await tx.machines.update({
           where: { id },
           data: {
             status: 'INSTALLED',
             installationId: installation.id,
+            updatedAt: new Date(),
           },
           include: {
-            warehouse: true,
-            client: true,
-            installation: true,
+            warehouses: true,
+            clients: true,
+            installations_machines_installationIdToinstallations: true,
           },
         });
 
         if (newStatus !== existing.status) {
-          await tx.machineStatusHistory.create({
+          await tx.machine_status_history.create({
             data: {
+              id: randomUUID(),
               machineId: id,
               fromStatus: existing.status,
               toStatus: 'INSTALLED',
@@ -264,27 +340,29 @@ export class MachineService {
         }
 
         return { machine };
-      });
+      }, INTERACTIVE_TX_OPTIONS);
 
-      return machine;
+      return this.shapeMachine(machine);
     }
 
-    const updated = await prisma.machine.update({
+    const updated = await prisma.machines.update({
       where: { id },
       data: {
         status: newStatus,
         installationId: existing.installationId,
+        updatedAt: new Date(),
       },
       include: {
-        warehouse: true,
-        client: true,
-        installation: true,
+        warehouses: true,
+        clients: true,
+        installations_machines_installationIdToinstallations: true,
       },
     });
 
     if (newStatus !== existing.status) {
-      await prisma.machineStatusHistory.create({
+      await prisma.machine_status_history.create({
         data: {
+          id: randomUUID(),
           machineId: id,
           fromStatus: existing.status,
           toStatus: newStatus,
@@ -294,11 +372,11 @@ export class MachineService {
       });
     }
 
-    return updated;
+    return this.shapeMachine(updated);
   }
 
   async history(machineId: string) {
-    const history = await prisma.machineStatusHistory.findMany({
+    const history = await prisma.machine_status_history.findMany({
       where: { machineId },
       orderBy: { createdAt: 'desc' },
     });
@@ -308,7 +386,7 @@ export class MachineService {
     );
 
     const users = changedByIds.length
-      ? await prisma.user.findMany({
+      ? await prisma.users.findMany({
           where: { id: { in: changedByIds } },
           select: { id: true, email: true },
         })

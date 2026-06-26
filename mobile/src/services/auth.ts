@@ -10,6 +10,7 @@ export interface AuthUser {
   id: string;
   email: string;
   role: BackendAuthRole;
+  contact?: string | null;
   warehouseId?: string | null;
   createdAt?: string;
   updatedAt?: string;

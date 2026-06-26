@@ -27,7 +27,8 @@ type StatusType =
   | 'RENTED'
   | 'CREATED'
   | 'DISPATCHED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'REMOVED';
 
 interface StatusBadgeProps {
   status: StatusType;
@@ -128,6 +129,11 @@ const statusColors: Partial<Record<StatusType, { bg: string; text: string; dot: 
     text: Colors.textMuted,
     dot: Colors.textMuted,
   },
+  REMOVED: {
+    bg: `${Colors.textMuted}20`,
+    text: Colors.textMuted,
+    dot: Colors.textMuted,
+  },
 };
 
 const statusLabels: Partial<Record<StatusType, string>> = {
@@ -149,6 +155,7 @@ const statusLabels: Partial<Record<StatusType, string>> = {
   INSTALLED: 'Installed',
   UNDER_MAINTENANCE: 'Under Maintenance',
   RETURNED: 'Returned',
+  REMOVED: 'Removed',
 };
 
 export const StatusBadge: React.FC<StatusBadgeProps> = ({

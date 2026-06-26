@@ -10,17 +10,24 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import { useDrawer } from '../store/DrawerContext';
+import { useAuth } from '../store/AuthContext';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
-import { Header, MachineCard, FAB, EmptyState, Input, Button, Card, StatusBadge, SearchBar } from '../components';
+import { Header, MachineCard, FAB, EmptyState, ErrorState, Input, Button, Card, StatusBadge, SearchBar } from '../components';
+import { parseApiError, ParsedApiError } from '../utils/errors';
 import machineService, {
   BackendMachine,
   BackendMachineStatus,
   InstallationStatusInput,
-  MachineHistoryEntry,
 } from '../services/machine';
+
+const PAGE_SIZE = 20;
 import warehouseService, { Warehouse } from '../services/warehouse';
 
 interface MachineListScreenProps {
@@ -86,24 +93,27 @@ const parseDateInput = (value?: string | null): string => {
   return d.toISOString().slice(0, 10);
 };
 
-const parseFilterDate = (value: string): Date | null => {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const parsed = new Date(`${value}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
 
 export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   onMachinePress,
   onBackPress,
 }) => {
+  const navigation = useNavigation<any>();
+  const { open: openDrawer } = useDrawer();
+  const { user } = useAuth();
+  // SRD §2: only Super Admin & Warehouse Manager create/edit/delete machines or change status.
+  const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'WAREHOUSE_MANAGER';
   const [machines, setMachines] = React.useState<BackendMachine[]>([]);
   const [warehouses, setWarehouses] = React.useState<Warehouse[]>([]);
-  const [historyByMachineId, setHistoryByMachineId] = React.useState<Record<string, MachineHistoryEntry[]>>({});
   const [statusUpdatingByMachineId, setStatusUpdatingByMachineId] = React.useState<Record<string, boolean>>({});
 
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [page, setPage] = React.useState(1);
+  const [hasMore, setHasMore] = React.useState(false);
+  const [totalMachines, setTotalMachines] = React.useState(0);
   const [refreshing, setRefreshing] = React.useState(false);
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = React.useState<ParsedApiError | null>(null);
 
   const [isAddModalVisible, setIsAddModalVisible] = React.useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = React.useState(false);
@@ -119,6 +129,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   const [editingMachineStatus, setEditingMachineStatus] = React.useState<BackendMachineStatus | null>(null);
   const [statusMenuMachineId, setStatusMenuMachineId] = React.useState<string | null>(null);
   const [pendingInstalledMachineId, setPendingInstalledMachineId] = React.useState<string | null>(null);
+  const [pendingLocationUrl, setPendingLocationUrl] = React.useState('');
   const [pendingInstallationAddress, setPendingInstallationAddress] = React.useState('');
   const [pendingInstallationNotes, setPendingInstallationNotes] = React.useState('');
   const [installComment, setInstallComment] = React.useState('');
@@ -132,36 +143,86 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   const [fromDateFilter, setFromDateFilter] = React.useState('');
   const [toDateFilter, setToDateFilter] = React.useState('');
 
-  const loadData = React.useCallback(async () => {
+  const buildListParams = React.useCallback(
+    (pageNum: number) => ({
+      status: statusFilter === 'ALL' ? undefined : statusFilter,
+      warehouseId: warehouseFilter === 'ALL' ? undefined : warehouseFilter,
+      serialNumber: searchQuery.trim() || undefined,
+      category: categoryFilter === 'ALL' ? undefined : categoryFilter,
+      purchaseFrom: fromDateFilter.trim() || undefined,
+      purchaseTo: toDateFilter.trim() || undefined,
+      page: pageNum,
+      limit: PAGE_SIZE,
+    }),
+    [statusFilter, warehouseFilter, searchQuery, categoryFilter, fromDateFilter, toDateFilter]
+  );
+
+  const loadWarehouses = React.useCallback(async () => {
     try {
-      setErrorMessage(null);
-      const [machineData, warehouseData] = await Promise.all([
-        machineService.list(),
-        warehouseService.list(),
-      ]);
-      setMachines(machineData);
-      setWarehouses(warehouseData);
-
-      const historyPairs = await Promise.all(
-        machineData.map(async (machine) => [machine.id, await machineService.history(machine.id)] as const)
-      );
-
-      setHistoryByMachineId(Object.fromEntries(historyPairs));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to fetch machines';
-      setErrorMessage(message);
-    } finally {
-      setIsLoading(false);
+      setWarehouses(await warehouseService.list());
+    } catch {
+      // Non-fatal for the machine list itself.
     }
   }, []);
 
+  // Fetch page 1 with the current filters (server-side). Used on filter change and after mutations.
+  const loadData = React.useCallback(async () => {
+    try {
+      setErrorMessage(null);
+      setIsLoading(true);
+      const res = await machineService.list(buildListParams(1));
+      setMachines(res.items);
+      setPage(res.page);
+      setHasMore(res.hasMore);
+      setTotalMachines(res.total);
+    } catch (error) {
+      setErrorMessage(parseApiError(error));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [buildListParams]);
+
+  const loadMore = React.useCallback(async () => {
+    if (!hasMore || isLoadingMore || isLoading) return;
+    try {
+      setIsLoadingMore(true);
+      const res = await machineService.list(buildListParams(page + 1));
+      setMachines((prev) => [...prev, ...res.items]);
+      setPage(res.page);
+      setHasMore(res.hasMore);
+      setTotalMachines(res.total);
+    } catch (error) {
+      setErrorMessage(parseApiError(error));
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [buildListParams, hasMore, isLoadingMore, isLoading, page]);
+
+  // Warehouses load once (for the filter dropdown + add/edit form).
   React.useEffect(() => {
-    loadData();
-  }, [loadData]);
+    loadWarehouses();
+  }, [loadWarehouses]);
+
+  // Refetch page 1 (debounced) whenever a filter or the search query changes.
+  const filterKey = [
+    statusFilter,
+    warehouseFilter,
+    categoryFilter,
+    searchQuery.trim(),
+    fromDateFilter.trim(),
+    toDateFilter.trim(),
+  ].join('|');
+  React.useEffect(() => {
+    const timeout = setTimeout(() => {
+      loadData();
+    }, 300);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    await Promise.all([loadWarehouses(), loadData()]);
     setRefreshing(false);
   };
 
@@ -271,9 +332,10 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
       resetForm();
       await loadData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create machine';
-      setErrorMessage(message);
-      if (message.toLowerCase().includes('serial') || message.toLowerCase().includes('unique')) {
+      const parsed = parseApiError(error);
+      setErrorMessage(parsed);
+      const rawLower = (parsed.rawMessage || '').toLowerCase();
+      if (rawLower.includes('serial') || rawLower.includes('unique')) {
         setFormErrors((prev) => ({ ...prev, serialNumber: 'Serial number already exists' }));
       }
     } finally {
@@ -299,14 +361,40 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
       resetForm();
       await loadData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update machine';
-      setErrorMessage(message);
-      if (message.toLowerCase().includes('serial') || message.toLowerCase().includes('unique')) {
+      const parsed = parseApiError(error);
+      setErrorMessage(parsed);
+      const rawLower = (parsed.rawMessage || '').toLowerCase();
+      if (rawLower.includes('serial') || rawLower.includes('unique')) {
         setFormErrors((prev) => ({ ...prev, serialNumber: 'Serial number already exists' }));
       }
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const confirmDeleteMachine = (machine: BackendMachine) => {
+    Alert.alert(
+      'Delete Machine',
+      `Delete ${machine.serialNumber} - ${machine.model}? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await machineService.remove(machine.id);
+              if (statusMenuMachineId === machine.id) {
+                setStatusMenuMachineId(null);
+              }
+              await loadData();
+            } catch (error) {
+              setErrorMessage(parseApiError(error));
+            }
+          },
+        },
+      ]
+    );
   };
 
   const applyStatusChange = async (
@@ -325,8 +413,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
       setStatusMenuMachineId(null);
       await loadData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update status';
-      setErrorMessage(message);
+      setErrorMessage(parseApiError(error));
     } finally {
       setStatusUpdatingByMachineId((prev) => ({ ...prev, [machineId]: false }));
     }
@@ -335,6 +422,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   const onStatusSelect = (machineId: string, status: BackendMachineStatus) => {
     if (status === 'INSTALLED') {
       setPendingInstalledMachineId(machineId);
+      setPendingLocationUrl('');
       setPendingInstallationAddress('');
       setPendingInstallationNotes('');
       setInstallComment('');
@@ -349,14 +437,24 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
   const confirmInstalledStatus = async () => {
     if (!pendingInstalledMachineId) return;
 
-    if (!pendingInstallationAddress.trim()) {
-      setInstallError('Installation address is required');
+    const locationUrl = pendingLocationUrl.trim();
+    const siteAddress = pendingInstallationAddress.trim();
+
+    if (!locationUrl && !siteAddress) {
+      setInstallError('Paste a Google Maps location link, or enter a site address.');
+      return;
+    }
+
+    // Light client-side sanity check so obvious mistakes are caught before the request.
+    if (locationUrl && !/^https?:\/\//i.test(locationUrl) && !/-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+/.test(locationUrl)) {
+      setInstallError('That doesn’t look like a Google Maps link. Use Share → Copy link in Google Maps.');
       return;
     }
 
     await applyStatusChange(pendingInstalledMachineId, 'INSTALLED', {
       installation: {
-        siteAddress: pendingInstallationAddress.trim(),
+        locationUrl: locationUrl || undefined,
+        siteAddress: siteAddress || undefined,
         siteNotes: pendingInstallationNotes.trim() || undefined,
       },
       comment: installComment.trim() || 'Status changed to INSTALLED',
@@ -364,6 +462,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
 
     setIsInstallPromptVisible(false);
     setPendingInstalledMachineId(null);
+    setPendingLocationUrl('');
     setPendingInstallationAddress('');
     setPendingInstallationNotes('');
   };
@@ -375,52 +474,6 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
     const categories = Array.from(new Set(machines.map((machine) => machine.category).filter(Boolean)));
     return categories.sort((a, b) => a.localeCompare(b));
   }, [machines]);
-
-  const filteredMachines = React.useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const fromDate = parseFilterDate(fromDateFilter);
-    const toDate = parseFilterDate(toDateFilter);
-
-    return machines.filter((machine) => {
-      const serialMatches = !q || machine.serialNumber.toLowerCase().includes(q);
-      const statusMatches = statusFilter === 'ALL' || machine.status === statusFilter;
-      const warehouseMatches = warehouseFilter === 'ALL' || machine.warehouseId === warehouseFilter;
-      const categoryMatches =
-        categoryFilter === 'ALL' || machine.category.toLowerCase() === categoryFilter.toLowerCase();
-
-      if (!serialMatches || !statusMatches || !warehouseMatches || !categoryMatches) {
-        return false;
-      }
-
-      if (!fromDate && !toDate) {
-        return true;
-      }
-
-      const machineDateValue = parseDateInput(machine.purchaseDate);
-      if (!machineDateValue) {
-        return false;
-      }
-
-      const machineDate = parseFilterDate(machineDateValue);
-      if (!machineDate) {
-        return false;
-      }
-
-      if (fromDate && machineDate < fromDate) {
-        return false;
-      }
-
-      if (toDate) {
-        const toEnd = new Date(toDate);
-        toEnd.setHours(23, 59, 59, 999);
-        if (machineDate > toEnd) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [machines, searchQuery, statusFilter, warehouseFilter, categoryFilter, fromDateFilter, toDateFilter]);
 
   const clearFilters = () => {
     setSearchQuery('');
@@ -539,11 +592,11 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
           status: item.status,
           location: mapLocationTag(item),
         }}
-        history={historyByMachineId[item.id] || []}
         statusUpdating={!!statusUpdatingByMachineId[item.id]}
-        onPress={() => onMachinePress?.(item)}
-        onEditPress={() => openEditModal(item)}
-        onStatusPress={() => setStatusMenuMachineId((prev) => (prev === item.id ? null : item.id))}
+        onPress={() => (onMachinePress ? onMachinePress(item) : navigation.navigate('MachineDetail', { id: item.id }))}
+        onEditPress={canManage ? () => openEditModal(item) : undefined}
+        onDeletePress={canManage ? () => confirmDeleteMachine(item) : undefined}
+        onStatusPress={canManage ? () => setStatusMenuMachineId((prev) => (prev === item.id ? null : item.id)) : undefined}
       />
 
       {statusMenuMachineId === item.id && (
@@ -560,7 +613,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Header title="Machines" subtitle={`${machines.length} total machines`} showBack onBackPress={onBackPress} />
+      <Header title="Machines" subtitle={`${totalMachines} total machines`} showMenu onMenuPress={openDrawer} />
 
       <View style={styles.searchContainer}>
         <SearchBar
@@ -675,19 +728,31 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
       )}
 
       {errorMessage && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{errorMessage}</Text>
-        </View>
+        <ErrorState
+          error={errorMessage}
+          variant="inline"
+          onRetry={loadData}
+          style={styles.errorContainer}
+        />
       )}
 
       <FlatList
-        data={filteredMachines}
+        data={machines}
         renderItem={renderMachine}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.4}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} colors={[Colors.primary]} />
+        }
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View style={styles.listFooter}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+            </View>
+          ) : null
         }
         ListEmptyComponent={
           <EmptyState
@@ -704,7 +769,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
         }
       />
 
-      <FAB icon="plus" onPress={openAddModal} style={styles.fab} />
+      {canManage && <FAB icon="plus" onPress={openAddModal} style={styles.fab} />}
 
       <Modal visible={isAddModalVisible} transparent animationType="slide" statusBarTranslucent onRequestClose={closeAddModal}>
         <View style={styles.modalBackdrop}>
@@ -749,8 +814,23 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
           <Card variant="elevated" style={styles.installCard}>
             <Text style={styles.modalTitle}>Set Installation Details</Text>
             <Input
-              label="Installation Address *"
-              placeholder="Enter full site address"
+              label="Google Maps Location Link *"
+              placeholder="Paste link from Google Maps"
+              value={pendingLocationUrl}
+              onChangeText={(value) => {
+                setPendingLocationUrl(value);
+                if (installError) setInstallError(null);
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+            <Text style={styles.installHint}>
+              In Google Maps, find the exact spot → tap Share → Copy link, then paste it here for an accurate pin.
+            </Text>
+            <Input
+              label="Site Address"
+              placeholder="Optional label (e.g. Plot 12, Korangi)"
               value={pendingInstallationAddress}
               onChangeText={(value) => {
                 setPendingInstallationAddress(value);
@@ -777,6 +857,7 @@ export const MachineListScreen: React.FC<MachineListScreenProps> = ({
                 onPress={() => {
                   setIsInstallPromptVisible(false);
                   setPendingInstalledMachineId(null);
+                  setPendingLocationUrl('');
                   setPendingInstallationAddress('');
                   setPendingInstallationNotes('');
                   setInstallError(null);
@@ -859,6 +940,10 @@ const styles = StyleSheet.create({
   errorText: {
     color: Colors.error,
     fontSize: FontSizes.sm,
+  },
+  listFooter: {
+    paddingVertical: Spacing.lg,
+    alignItems: 'center',
   },
   listContent: {
     paddingHorizontal: Spacing.lg,
@@ -977,6 +1062,13 @@ const styles = StyleSheet.create({
     color: Colors.error,
     fontSize: FontSizes.sm,
     marginTop: Spacing.xs,
+  },
+  installHint: {
+    color: Colors.textMuted,
+    fontSize: FontSizes.xs,
+    lineHeight: 16,
+    marginTop: -Spacing.sm,
+    marginBottom: Spacing.md,
   },
   actionRow: {
     flexDirection: 'row',

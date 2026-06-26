@@ -10,6 +10,7 @@
  import { AppNavigator } from './src/navigation';
  import { Colors, PaperTheme } from './src/utils/theme';
 import { AuthProvider } from './src/store/AuthContext';
+import { DrawerProvider } from './src/store/DrawerContext';
  
  // Combine Paper theme with custom theme
  const theme = {
@@ -26,12 +27,14 @@ import { AuthProvider } from './src/store/AuthContext';
      <SafeAreaProvider>
        <PaperProvider theme={theme}>
         <AuthProvider>
-          <StatusBar
-            barStyle="light-content"
-            backgroundColor={Colors.background}
-            translucent={false}
-          />
-          <AppNavigator />
+          <DrawerProvider>
+            <StatusBar
+              barStyle="light-content"
+              backgroundColor={Colors.background}
+              translucent={false}
+            />
+            <AppNavigator />
+          </DrawerProvider>
         </AuthProvider>
        </PaperProvider>
      </SafeAreaProvider>

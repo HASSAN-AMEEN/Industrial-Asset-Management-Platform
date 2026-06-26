@@ -1,5 +1,6 @@
 import { api } from './api';
 import authService from './auth';
+import type { BackendMachine } from './machine';
 
 interface BackendResponse<T> {
   success: boolean;
@@ -22,8 +23,15 @@ export interface Warehouse {
 export interface WarehouseManager {
   id: string;
   email: string;
+  contact?: string | null;
   warehouseId?: string | null;
   createdAt: string;
+}
+
+export interface WarehouseInventory {
+  total: number;
+  byCategory: Record<string, number>;
+  byStatus: Record<string, number>;
 }
 
 export interface CreateWarehouseInput {
@@ -137,6 +145,36 @@ export const warehouseService = {
       });
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to create warehouse manager'));
+    }
+  },
+
+  async getMachines(warehouseId: string, filters?: { category?: string; status?: string }): Promise<BackendMachine[]> {
+    try {
+      const response = await api.get<BackendResponse<BackendMachine[]>>(`/warehouses/${warehouseId}/machines`, {
+        params: filters,
+      });
+
+      if (!response.data?.success || !response.data?.data) {
+        throw new Error(response.data?.message || 'Failed to fetch warehouse machines');
+      }
+
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to fetch warehouse machines'));
+    }
+  },
+
+  async getInventory(warehouseId: string): Promise<WarehouseInventory> {
+    try {
+      const response = await api.get<BackendResponse<WarehouseInventory>>(`/warehouses/${warehouseId}/inventory`);
+
+      if (!response.data?.success || !response.data?.data) {
+        throw new Error(response.data?.message || 'Failed to fetch warehouse inventory');
+      }
+
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to fetch warehouse inventory'));
     }
   },
 };

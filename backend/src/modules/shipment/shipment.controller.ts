@@ -61,24 +61,45 @@ export class ShipmentController {
         return;
       }
 
-      const { status, fromDate, toDate, machineId, fromWarehouseId, toWarehouseId, toClientId } = req.query as any;
+      const { status, fromDate, toDate, machineId, fromWarehouseId, toWarehouseId, toClientId, search, page, limit } =
+        req.query as any;
 
-      const shipments = await this.shipmentService.list({
+      // Warehouse Managers see shipments from their own warehouse.
+      let effectiveFromWarehouseId = fromWarehouseId as string | undefined;
+      if (req.user.role === UserRole.WAREHOUSE_MANAGER) {
+        if (!req.user.warehouseId) {
+          res.status(200).json({ success: true, data: [], pagination: { total: 0, page: 1, limit: 0, hasMore: false } });
+          return;
+        }
+        effectiveFromWarehouseId = req.user.warehouseId;
+      }
+
+      const pageNum = page ? parseInt(page, 10) : 1;
+      const limitNum = limit ? parseInt(limit, 10) : undefined;
+
+      const result = await this.shipmentService.list({
         status,
         fromDate,
         toDate,
         machineId,
-        fromWarehouseId,
+        fromWarehouseId: effectiveFromWarehouseId,
         toWarehouseId,
         toClientId,
+        search,
+        page: pageNum,
+        limit: limitNum,
       });
 
-      const filtered =
-        req.user.role === UserRole.WAREHOUSE_MANAGER && req.user.warehouseId
-          ? shipments.filter((s) => s.fromWarehouseId === req.user!.warehouseId)
-          : shipments;
-
-      res.status(200).json({ success: true, data: filtered });
+      res.status(200).json({
+        success: true,
+        data: result.items,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          hasMore: result.page * result.limit < result.total,
+        },
+      });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message || 'Failed to fetch shipments' });
     }

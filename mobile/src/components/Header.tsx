@@ -12,6 +12,8 @@ interface HeaderProps {
   rightIcon?: string;
   onRightPress?: () => void;
   rightComponent?: React.ReactNode;
+  showMenu?: boolean;
+  onMenuPress?: () => void;
   transparent?: boolean;
   style?: ViewStyle;
 }
@@ -24,6 +26,8 @@ export const Header: React.FC<HeaderProps> = ({
   rightIcon,
   onRightPress,
   rightComponent,
+  showMenu = false,
+  onMenuPress,
   transparent = false,
   style,
 }) => {
@@ -40,7 +44,13 @@ export const Header: React.FC<HeaderProps> = ({
     >
       <StatusBar barStyle="light-content" backgroundColor={Colors.background} />
       <View style={styles.content}>
-        <View style={styles.left} />
+        <View style={styles.left}>
+          {showBack && (
+            <Pressable onPress={onBackPress} style={styles.backButton} hitSlop={8}>
+              <Icon name="chevron-left" size={28} color={Colors.textPrimary} />
+            </Pressable>
+          )}
+        </View>
 
         <View style={styles.center}>
           <Text style={styles.title} numberOfLines={1}>
@@ -58,6 +68,11 @@ export const Header: React.FC<HeaderProps> = ({
           {rightIcon && (
             <Pressable onPress={onRightPress} style={styles.rightButton}>
               <Icon name={rightIcon} size={24} color={Colors.textPrimary} />
+            </Pressable>
+          )}
+          {showMenu && (
+            <Pressable onPress={onMenuPress} style={styles.rightButton} hitSlop={8}>
+              <Icon name="menu" size={26} color={Colors.textPrimary} />
             </Pressable>
           )}
         </View>

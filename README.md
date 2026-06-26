@@ -105,6 +105,25 @@ The backend will be available at `http://localhost:5000`
    ```bash
    npm start
    ```
+   If your mobile device is on the same LAN and Expo can't connect, use the helper script which auto-detects your current LAN IP and updates the local env files, then starts Expo bound to that IP.
+
+   - Windows PowerShell (from repository root):
+      ```powershell
+      # run once to update env files and start Expo
+      .\scripts\start-expo.ps1
+      ```
+
+   - macOS / Linux (manual):
+      ```bash
+      # Auto-detect IP (example, add your own helper if desired)
+      node ./scripts/set-lan-ip.js
+      REACT_NATIVE_PACKAGER_HOSTNAME=$(node -e "const os=require('os');const ifaces=os.networkInterfaces();for(const k in ifaces){for(const i of ifaces[k]){if(i.family==='IPv4' && !i.internal){console.log(i.address);process.exit(0);}}}throw new Error('noip')") npm start -- --host lan
+      ```
+
+   Notes:
+   - The `scripts/set-lan-ip.js` script updates `mobile/.env.local` and `backend/.env.local` with the detected LAN IPv4 address (so API URLs stay correct after network changes and never affect production env files).
+   - Ensure your Windows network profile is set to **Private** and firewall rules allow ports `8082` (Expo Metro) and `5000` (backend).
+   - If you prefer an mDNS/hostname solution, install Bonjour (Windows) and use `your-machine-name.local` instead of numeric IPs; otherwise the provided scripts keep the repo in sync with your current LAN IP.
 
 4. Run on your preferred platform:
    ```bash
@@ -117,6 +136,51 @@ The backend will be available at `http://localhost:5000`
    # For web
    npm run web
    ```
+
+### One-command local development
+
+From the repository root, start both backend and Expo with one command:
+
+```powershell
+npm run dev:wifi
+```
+
+What it does:
+- Detects your current LAN IP.
+- Updates `mobile/.env.local` and `backend/.env.local`.
+- Starts the backend server.
+- Starts Expo in LAN mode on port `8082`.
+
+Use this every time you change Wi-Fi networks or reconnect to the router.
+
+Shortcut from PowerShell if you want to keep the same terminal style:
+
+```powershell
+.\scripts\run-app.ps1 -Mode wifi
+```
+
+### Remote demo over tunnel
+
+Expo tunnel only carries the app bundle. For a client in another city, the API must also be public.
+
+If your backend is deployed publicly, run:
+
+```powershell
+npm run dev:tunnel -- --api-url https://your-public-api.example.com/api
+```
+
+This will:
+- write the public API URL to `mobile/.env.local`,
+- update `backend/.env.local` so generated upload URLs point to the public backend,
+- start Expo in tunnel mode.
+
+PowerShell shortcut:
+
+```powershell
+.\scripts\run-app.ps1 -Mode tunnel -ApiUrl https://your-public-api.example.com/api
+```
+
+If you do not have a public backend yet, tunnel mode alone will not be enough for the app to work end-to-end.
 
 ## API Endpoints
 

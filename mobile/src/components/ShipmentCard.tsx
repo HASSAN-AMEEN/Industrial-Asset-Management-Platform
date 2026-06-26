@@ -14,6 +14,8 @@ interface ShipmentCardProps {
   onDeliver?: () => void;
   onEdit?: () => void;
   onCancel?: () => void;
+  /** When false, the action buttons (dispatch/deliver/edit/cancel) are hidden. */
+  canManage?: boolean;
 }
 
 const formatDate = (value?: string | null): string => {
@@ -42,6 +44,7 @@ export const ShipmentCard: React.FC<ShipmentCardProps> = ({
   onDeliver,
   onEdit,
   onCancel,
+  canManage = true,
 }) => {
   const statusStyles = statusStyleMap[shipment.status] || statusStyleMap.CREATED;
   const machineCount = shipment.items?.length ?? 0;
@@ -116,28 +119,30 @@ export const ShipmentCard: React.FC<ShipmentCardProps> = ({
         </View>
       </View>
 
-      <View style={styles.actionRow}>
-        {shipment.status === 'CREATED' && (
-          <Pressable style={styles.actionButton} onPress={onDispatch}>
-            <Text style={styles.actionButtonText}>Dispatch</Text>
-          </Pressable>
-        )}
-        {shipment.status === 'IN_TRANSIT' && (
-          <Pressable style={[styles.actionButton, styles.actionDeliver]} onPress={onDeliver}>
-            <Text style={styles.actionButtonText}>Mark Delivered</Text>
-          </Pressable>
-        )}
-        {(shipment.status === 'CREATED' || shipment.status === 'IN_TRANSIT') && (
-          <Pressable style={[styles.actionButton, styles.actionSecondary]} onPress={onEdit}>
-            <Text style={styles.actionSecondaryText}>Edit</Text>
-          </Pressable>
-        )}
-        {shipment.status !== 'DELIVERED' && shipment.status !== 'CANCELLED' && (
-          <Pressable style={[styles.actionButton, styles.actionDanger]} onPress={onCancel}>
-            <Text style={styles.actionButtonText}>Cancel</Text>
-          </Pressable>
-        )}
-      </View>
+      {canManage && (
+        <View style={styles.actionRow}>
+          {shipment.status === 'CREATED' && (
+            <Pressable style={styles.actionButton} onPress={onDispatch}>
+              <Text style={styles.actionButtonText}>Dispatch</Text>
+            </Pressable>
+          )}
+          {shipment.status === 'IN_TRANSIT' && (
+            <Pressable style={[styles.actionButton, styles.actionDeliver]} onPress={onDeliver}>
+              <Text style={styles.actionButtonText}>Mark Delivered</Text>
+            </Pressable>
+          )}
+          {(shipment.status === 'CREATED' || shipment.status === 'IN_TRANSIT') && (
+            <Pressable style={[styles.actionButton, styles.actionSecondary]} onPress={onEdit}>
+              <Text style={styles.actionSecondaryText}>Edit</Text>
+            </Pressable>
+          )}
+          {shipment.status !== 'DELIVERED' && shipment.status !== 'CANCELLED' && (
+            <Pressable style={[styles.actionButton, styles.actionDanger]} onPress={onCancel}>
+              <Text style={styles.actionButtonText}>Cancel</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
     </Card>
   );
 };

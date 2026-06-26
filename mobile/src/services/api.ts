@@ -11,7 +11,7 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000/a
 // Create axios instance with default configuration
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000, // 10 seconds timeout
+  timeout: 30000, // 30 seconds timeout
   headers: {
     'Content-Type': 'application/json',
   },
@@ -26,43 +26,17 @@ export const setAuthToken = (token: string | null): void => {
   delete apiClient.defaults.headers.common.Authorization;
 };
 
-// Request interceptor for logging
-apiClient.interceptors.request.use(
-  (config) => {
-    console.log(`API Request: ${config.method?.toUpperCase()} ${config.url}`);
-    return config;
-  },
-  (error) => {
-    console.error('API Request Error:', error);
-    return Promise.reject(error);
-  }
-);
-
-// Response interceptor for logging and error handling
+// Pass-through interceptors. Per-request success logging was noisy and is removed.
+// Errors are propagated to callers, which now surface them through ErrorState/ErrorBanner.
 apiClient.interceptors.response.use(
-  (response: AxiosResponse) => {
-    console.log(`API Response: ${response.status} ${response.config.url}`);
-    return response;
-  },
-  (error) => {
-    console.error('API Response Error:', error.response?.data || error.message);
-    return Promise.reject(error);
-  }
+  (response: AxiosResponse) => response,
+  (error) => Promise.reject(error)
 );
 
 /**
- * Test API connectivity
- * Calls the /test endpoint to verify server connection
+ * Test API connectivity. Calls /test to verify server connection.
  */
-export const testAPI = async (): Promise<AxiosResponse> => {
-  try {
-    const response = await apiClient.get('/test');
-    return response;
-  } catch (error) {
-    console.error('Test API failed:', error);
-    throw error;
-  }
-};
+export const testAPI = async (): Promise<AxiosResponse> => apiClient.get('/test');
 
 /**
  * Generic API request methods

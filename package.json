@@ -1,0 +1,11 @@
+{
+  "name": "tayyab-traders-root",
+  "private": true,
+  "scripts": {
+    "dev": "powershell -ExecutionPolicy Bypass -File ./scripts/run-app.ps1 -Mode wifi",
+    "dev:wifi": "powershell -ExecutionPolicy Bypass -File ./scripts/run-app.ps1 -Mode wifi",
+    "dev:tunnel": "powershell -ExecutionPolicy Bypass -File ./scripts/run-app.ps1 -Mode tunnel",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:mobile": "powershell -ExecutionPolicy Bypass -File ./scripts/start-expo.ps1"
+  }
+}

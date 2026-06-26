@@ -22,9 +22,25 @@ export interface DashboardActivity {
   createdAt: string;
 }
 
+export interface DashboardStatusBreakdownItem {
+  status: string;
+  count: number;
+  percentage: number;
+}
+
+export interface DashboardWarehouseItem {
+  warehouseId: string;
+  warehouseName: string;
+  count: number;
+}
+
 export interface DashboardPayload {
   machineStats: DashboardMachineStats;
   fleetStatus: DashboardFleetStatusItem[];
+  statusBreakdown: DashboardStatusBreakdownItem[];
+  machinesPerWarehouse: DashboardWarehouseItem[];
+  installationsCount: number;
+  shipmentsInTransit: number;
   recentActivity: DashboardActivity[];
 }
 

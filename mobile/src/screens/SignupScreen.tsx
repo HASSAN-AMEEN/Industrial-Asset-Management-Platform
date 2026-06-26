@@ -10,9 +10,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
-import { Button, Input } from '../components';
+import { Button, ErrorBanner, Input } from '../components';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useResponsive } from '../hooks/useResponsive';
+import { parseApiError, ParsedApiError } from '../utils/errors';
 
 interface SignupScreenProps {
   onSignup?: (email: string, password: string) => Promise<void> | void;
@@ -24,7 +25,7 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ onSignup, onNavigate
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [submitError, setSubmitError] = useState<ParsedApiError | null>(null);
   const [errors, setErrors] = useState<{
     email?: string;
     password?: string;
@@ -58,7 +59,7 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ onSignup, onNavigate
   };
 
   const handleSignup = async () => {
-    setErrorMessage('');
+    setSubmitError(null);
 
     if (!validateForm()) {
       return;
@@ -68,8 +69,7 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ onSignup, onNavigate
     try {
       await onSignup?.(email.trim(), password);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Signup failed';
-      setErrorMessage(message);
+      setSubmitError(parseApiError(error));
     } finally {
       setLoading(false);
     }
@@ -133,7 +133,11 @@ export const SignupScreen: React.FC<SignupScreenProps> = ({ onSignup, onNavigate
                 error={errors.confirmPassword}
               />
 
-              {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
+              <ErrorBanner
+                error={submitError}
+                onDismiss={() => setSubmitError(null)}
+                style={styles.errorBanner}
+              />
 
               <Button
                 title="Create Account"
@@ -218,9 +222,7 @@ const styles = StyleSheet.create({
     lineHeight: FontSizes.md * 1.5,
   },
   form: {},
-  errorText: {
-    color: Colors.error,
-    fontSize: FontSizes.sm,
+  errorBanner: {
     marginTop: -Spacing.sm,
     marginBottom: Spacing.lg,
   },

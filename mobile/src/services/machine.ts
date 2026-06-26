@@ -84,6 +84,7 @@ export interface InstallationStatusInput {
   longitude?: number;
   siteAddress?: string;
   siteNotes?: string;
+  locationUrl?: string;
 }
 
 const getErrorMessage = (error: unknown, fallback: string): string => {
@@ -104,18 +105,64 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
+export interface MachineListParams {
+  status?: string;
+  warehouseId?: string;
+  model?: string;
+  serialNumber?: string;
+  category?: string;
+  purchaseFrom?: string;
+  purchaseTo?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedMachines {
+  items: BackendMachine[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
+interface PaginatedResponse<T> extends BackendResponse<T[]> {
+  pagination?: { total: number; page: number; limit: number; hasMore: boolean };
+}
+
 export const machineService = {
-  async list(params?: { status?: string; warehouseId?: string; model?: string; serialNumber?: string }): Promise<BackendMachine[]> {
+  async list(params?: MachineListParams): Promise<PaginatedMachines> {
     try {
-      const response = await api.get<BackendResponse<BackendMachine[]>>('/machines', { params });
+      const response = await api.get<PaginatedResponse<BackendMachine>>('/machines', { params });
 
       if (!response.data?.success || !response.data?.data) {
         throw new Error(response.data?.message || 'Failed to fetch machines');
       }
 
-      return response.data.data;
+      const items = response.data.data;
+      const pg = response.data.pagination;
+      return {
+        items,
+        total: pg?.total ?? items.length,
+        page: pg?.page ?? 1,
+        limit: pg?.limit ?? items.length,
+        hasMore: pg?.hasMore ?? false,
+      };
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to fetch machines'));
+    }
+  },
+
+  async getById(id: string): Promise<BackendMachine> {
+    try {
+      const response = await api.get<BackendResponse<BackendMachine>>(`/machines/${id}`);
+
+      if (!response.data?.success || !response.data?.data) {
+        throw new Error(response.data?.message || 'Failed to fetch machine');
+      }
+
+      return response.data.data;
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to fetch machine'));
     }
   },
 
@@ -183,6 +230,18 @@ export const machineService = {
       return response.data.data;
     } catch (error) {
       throw new Error(getErrorMessage(error, 'Failed to fetch machine history'));
+    }
+  },
+
+  async remove(id: string): Promise<void> {
+    try {
+      const response = await api.delete<BackendResponse<void>>(`/machines/${id}`);
+
+      if (!response.data?.success) {
+        throw new Error(response.data?.message || 'Failed to delete machine');
+      }
+    } catch (error) {
+      throw new Error(getErrorMessage(error, 'Failed to delete machine'));
     }
   },
 };

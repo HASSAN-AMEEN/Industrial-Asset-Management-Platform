@@ -10,51 +10,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Spacing, FontSizes, BorderRadius } from '../utils/theme';
-import { Button, Input } from '../components';
+import { Button, ErrorBanner, Input } from '../components';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useResponsive } from '../hooks/useResponsive';
-
-const INVALID_CREDENTIALS_MESSAGE = 'Invalid email or password';
-const NETWORK_ERROR_MESSAGE = 'Unable to connect. Please check your connection and try again';
-const GENERIC_ERROR_MESSAGE = 'Something went wrong. Please try again';
-
-const mapLoginErrorMessage = (error: unknown): string => {
-  const maybeError = error as {
-    message?: string;
-    code?: string;
-    response?: { status?: number; data?: { message?: string; error?: string } };
-  };
-
-  const responseStatus = maybeError?.response?.status;
-  const responseMessage = (
-    maybeError?.response?.data?.message || maybeError?.response?.data?.error || ''
-  ).toLowerCase();
-  const rawMessage = (maybeError?.message || '').toLowerCase();
-  const code = (maybeError?.code || '').toLowerCase();
-
-  if (
-    responseStatus === 401 ||
-    responseMessage.includes('invalid email or password') ||
-    responseMessage.includes('invalid credentials') ||
-    rawMessage.includes('invalid email or password') ||
-    rawMessage.includes('invalid credentials')
-  ) {
-    return INVALID_CREDENTIALS_MESSAGE;
-  }
-
-  if (
-    code === 'err_network' ||
-    code === 'econnaborted' ||
-    rawMessage.includes('network error') ||
-    rawMessage.includes('timeout') ||
-    rawMessage.includes('failed to fetch') ||
-    rawMessage.includes('unable to connect')
-  ) {
-    return NETWORK_ERROR_MESSAGE;
-  }
-
-  return GENERIC_ERROR_MESSAGE;
-};
+import { parseApiError, ParsedApiError } from '../utils/errors';
 
 interface LoginScreenProps {
   onLogin?: (email: string, password: string) => Promise<void> | void;
@@ -65,7 +24,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [submitError, setSubmitError] = useState<ParsedApiError | null>(null);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const { hp } = useResponsive();
 
@@ -89,15 +48,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
   };
 
   const handleLogin = async () => {
-    setErrorMessage('');
+    setSubmitError(null);
 
     if (!validateForm()) return;
-    
+
     setLoading(true);
     try {
       await onLogin?.(email.trim(), password);
     } catch (error) {
-      setErrorMessage(mapLoginErrorMessage(error));
+      setSubmitError(parseApiError(error));
     } finally {
       setLoading(false);
     }
@@ -137,7 +96,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
                 value={email}
                 onChangeText={(value) => {
                   setEmail(value);
-                  if (errorMessage) setErrorMessage('');
+                  if (submitError) setSubmitError(null);
                 }}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -152,7 +111,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
                 value={password}
                 onChangeText={(value) => {
                   setPassword(value);
-                  if (errorMessage) setErrorMessage('');
+                  if (submitError) setSubmitError(null);
                 }}
                 secureTextEntry
                 leftIcon="lock-outline"
@@ -163,7 +122,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onNavigateToS
                 <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
               </Pressable>
 
-              {!!errorMessage && <Text style={styles.errorText}>{errorMessage}</Text>}
+              <ErrorBanner
+                error={submitError}
+                onDismiss={() => setSubmitError(null)}
+                style={styles.errorBanner}
+              />
 
               <Button
                 title="Sign In"
@@ -254,9 +217,7 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     fontWeight: '500',
   },
-  errorText: {
-    color: Colors.error,
-    fontSize: FontSizes.sm,
+  errorBanner: {
     marginTop: -Spacing.sm,
     marginBottom: Spacing.lg,
   },

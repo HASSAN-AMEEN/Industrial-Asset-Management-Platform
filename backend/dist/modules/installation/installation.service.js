@@ -2,10 +2,41 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.InstallationService = void 0;
 const database_1 = require("../../config/database");
+const geo_1 = require("../../utils/geo");
 const isInstallationStatus = (value) => {
     return value === 'ACTIVE' || value === 'REMOVED' || value === 'MAINTENANCE';
 };
 class InstallationService {
+    async resolveCoordinates(input) {
+        const hasLat = input.latitude !== undefined && input.latitude !== null;
+        const hasLon = input.longitude !== undefined && input.longitude !== null;
+        const wantsClearLat = input.latitude === null;
+        const wantsClearLon = input.longitude === null;
+        if (wantsClearLat !== wantsClearLon) {
+            throw new Error('Both latitude and longitude must be null to clear coordinates');
+        }
+        if (wantsClearLat && wantsClearLon) {
+            return { latitude: null, longitude: null };
+        }
+        if (hasLat !== hasLon) {
+            throw new Error('Both latitude and longitude are required when one is provided');
+        }
+        if (hasLat && hasLon) {
+            const normalized = (0, geo_1.normalizeCoordinatePair)(input.latitude, input.longitude);
+            if (!normalized) {
+                throw new Error('Invalid coordinate values. Latitude must be between -90 and 90, longitude between -180 and 180');
+            }
+            return normalized;
+        }
+        if (input.siteAddress) {
+            const geocoded = await (0, geo_1.geocodeAddress)(input.siteAddress);
+            return {
+                latitude: geocoded.latitude,
+                longitude: geocoded.longitude,
+            };
+        }
+        return {};
+    }
     async create(input, installedByUserId) {
         if (!input.machineId) {
             throw new Error('machineId is required');
@@ -23,14 +54,19 @@ class InstallationService {
         if (input.clientId && input.clientId !== machine.clientId) {
             throw new Error('Provided clientId does not match machine client assignment');
         }
+        const coordinates = await this.resolveCoordinates({
+            latitude: input.latitude,
+            longitude: input.longitude,
+            siteAddress: input.siteAddress,
+        });
         const installation = await database_1.prisma.installation.create({
             data: {
                 machineId: input.machineId,
                 clientId: machine.clientId,
                 installedAt: input.installedAt ? new Date(input.installedAt) : new Date(),
                 installedBy: installedByUserId,
-                latitude: input.latitude,
-                longitude: input.longitude,
+                latitude: coordinates.latitude === undefined ? undefined : coordinates.latitude,
+                longitude: coordinates.longitude === undefined ? undefined : coordinates.longitude,
                 siteAddress: input.siteAddress,
                 siteNotes: input.siteNotes,
                 status: 'ACTIVE',
@@ -78,6 +114,101 @@ class InstallationService {
             orderBy: { createdAt: 'desc' },
         });
     }
+    async listForMap(params) {
+        const where = {
+            latitude: { not: null },
+            longitude: { not: null },
+        };
+        if (params.status) {
+            where.status = params.status;
+        }
+        if (params.clientId) {
+            where.clientId = params.clientId;
+        }
+        if (params.fromDate || params.toDate) {
+            where.installedAt = {};
+            if (params.fromDate)
+                where.installedAt.gte = new Date(params.fromDate);
+            if (params.toDate)
+                where.installedAt.lte = new Date(params.toDate);
+        }
+        return database_1.prisma.installation.findMany({
+            where,
+            select: {
+                id: true,
+                status: true,
+                installedAt: true,
+                siteAddress: true,
+                siteNotes: true,
+                latitude: true,
+                longitude: true,
+                machine: {
+                    select: {
+                        id: true,
+                        serialNumber: true,
+                        model: true,
+                        category: true,
+                    },
+                },
+                client: {
+                    select: {
+                        id: true,
+                        name: true,
+                        city: true,
+                        address: true,
+                    },
+                },
+            },
+            orderBy: { installedAt: 'desc' },
+        });
+    }
+    async listUnmapped(params) {
+        const where = {
+            OR: [{ latitude: null }, { longitude: null }],
+        };
+        if (params.status) {
+            where.status = params.status;
+        }
+        if (params.clientId) {
+            where.clientId = params.clientId;
+        }
+        if (params.fromDate || params.toDate) {
+            where.installedAt = {};
+            if (params.fromDate)
+                where.installedAt.gte = new Date(params.fromDate);
+            if (params.toDate)
+                where.installedAt.lte = new Date(params.toDate);
+        }
+        return database_1.prisma.installation.findMany({
+            where,
+            select: {
+                id: true,
+                status: true,
+                installedAt: true,
+                siteAddress: true,
+                siteNotes: true,
+                latitude: true,
+                longitude: true,
+                machine: {
+                    select: {
+                        id: true,
+                        serialNumber: true,
+                        model: true,
+                        category: true,
+                    },
+                },
+                client: {
+                    select: {
+                        id: true,
+                        name: true,
+                        city: true,
+                        address: true,
+                    },
+                },
+            },
+            orderBy: { installedAt: 'desc' },
+        });
+    }
     async getById(id) {
         return database_1.prisma.installation.findUnique({
             where: { id },
@@ -98,12 +229,20 @@ class InstallationService {
         if (input.status && !isInstallationStatus(input.status)) {
             throw new Error('Invalid status');
         }
+        const shouldResolveCoordinates = input.latitude !== undefined || input.longitude !== undefined || input.siteAddress !== undefined;
+        const coordinates = shouldResolveCoordinates
+            ? await this.resolveCoordinates({
+                latitude: input.latitude,
+                longitude: input.longitude,
+                siteAddress: input.siteAddress === undefined ? existing.siteAddress : input.siteAddress,
+            })
+            : {};
         const updated = await database_1.prisma.installation.update({
             where: { id },
             data: {
                 clientId: undefined,
-                latitude: input.latitude === undefined ? undefined : input.latitude,
-                longitude: input.longitude === undefined ? undefined : input.longitude,
+                latitude: coordinates.latitude === undefined ? undefined : coordinates.latitude,
+                longitude: coordinates.longitude === undefined ? undefined : coordinates.longitude,
                 siteAddress: input.siteAddress === undefined ? undefined : input.siteAddress,
                 siteNotes: input.siteNotes === undefined ? undefined : input.siteNotes,
                 status: input.status,
